@@ -1,20 +1,18 @@
 # TECLA - Sintetitzador MIDI Modular
 
-TECLA és un sintetitzador MIDI modular desenvolupat per a plataformes embegudes amb CircuitPython. Aquest projecte permet crear sons i seqüències musicals mitjançant diferents modes d'operació, cadascun amb les seves pròpies característiques i comportaments.
+TECLA Chiptune és un sintetitzador MIDI i Eurorack modular desenvolupat per a plataformes embegudes amb CircuitPython. Aquest projecte permet crear sons i seqüències musicals mitjançant diferents modes d'operació, cadascun amb les seves pròpies característiques i comportaments.
 
 ## Característiques
 
-- Múltiples modes d'operació (batec, harmonic, melodic, etc.)
-- Control mitjançant potenciòmetres i botons
+- Múltiples modes d'operació (fractal, harmonic, bosc, etc.)
+- Mode tracker per sequencies personalitzables
+- Control analogic mitjançant potenciometre, ldr
+- Control de navegació mitjançant botons
 - Sortida MIDI per a controlar sintetitzadors externs
+- 3 Sortides PWM modulables
+- 1 Sortida gate
+- 2 Entrades de CV amb rang configurable 
 - Arquitectura modular per a fàcil expansió
-
-## Estructura del Projecte
-
-- `/config`: Configuració de l'aplicació
-- `/modes`: Modes d'operació del sintetitzador
-- `/core`: Mòduls principals del sistema
-- `main.py`: Punt d'entrada principal de l'aplicació
 
 ## Requisits
 
@@ -26,14 +24,15 @@ TECLA és un sintetitzador MIDI modular desenvolupat per a plataformes embegudes
 ## Instal·lació
 
 1. Copia el contingut d'aquest directori a la teva placa amb CircuitPython
-2. Assegura't que tots els mòduls necessaris estan instal·lats
-3. Connecta els potenciòmetres i botons segons la configuració a `config/settings.py`
+2. Compila el fitxer .main.py amb el teu editor de codi i verifica que no hi ha errors
+3. Desconecta el usb i connectau a la alimentació externa
 
 ## Ús
 
-1. Connecta la placa al teu sintetitzador MIDI
+1. Connecta la placa al teu DAW, sintetitzador MIDI, sistema de pedals o sistema Eurorack
 2. Selecciona el mode d'operació amb els botons
 3. Ajusta els paràmetres amb els potenciòmetres
+4. Disfruta!
 
 ## Llicència
 
