@@ -37,4 +37,4 @@ TECLA és un sintetitzador MIDI modular desenvolupat per a plataformes embegudes
 
 ## Llicència
 
-Aquest projecte està sota la llicència MIT. Consulta el fitxer `LICENSE` per a més informació.
+Aquest projecte està sota la llicència MIT. Consulta (https://mit-license.org/) per a més informació.
