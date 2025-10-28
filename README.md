@@ -1,4 +1,4 @@
-# TECLA - Sintetitzador MIDI Modular
+# TECLA CHIPTUNE - Sintetitzador MIDI i Eurorack
 
 TECLA Chiptune és un sintetitzador MIDI i Eurorack modular desenvolupat per a plataformes embegudes amb CircuitPython. Aquest projecte permet crear sons i seqüències musicals mitjançant diferents modes d'operació, cadascun amb les seves pròpies característiques i comportaments.
 
