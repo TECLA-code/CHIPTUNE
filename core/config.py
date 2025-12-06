@@ -3,7 +3,7 @@
 # =============================================================================
 
 # Control de octava i modes especials
-octava = 0
+octava = 5
 octava_anterior = 0  # Guarda la octava anterior al activar el modo caos
 caos = 0
 caos_note = 0
@@ -33,6 +33,16 @@ cv2_range_config = 0  # CV2: 0=3.3V, 1=2.5V, 2=1.5V, 3=1.0V, 4=0.5V
 config_acceleration = 1  # Factor d'acceleració (1, 2, 4, 8)
 config_hold_time = 0.0   # Temps que porta premut el botó
 
+# Indicadors dinàmics per LEDs (duty/harm)
+led_pulse_counter = 0.0
+led_pulse_phase = 0.0
+led_last_state = {
+    'duty': (50, 50, 50),
+    'harmonics': (0, 0, 0)
+}
+led_mode_step = 0
+last_loop_led_time = 0.0
+
 def duty_percent_to_cycle(percent):
     """Converteix duty cycle de percentatge (1-99) a valor PWM (655-64880)"""
     return int((percent / 100.0) * 65535)
@@ -48,10 +58,25 @@ next_note_time = 0.0
 last_button_check = 0.0
 last_display_update = 0.0
 last_input_sample = 0.0  # Nueva variable para muestreo desacoplado
+next_calibration_frame = 0.0  # Temps objectiu per refresc de pantalla en mode calibratge
 current_sleep_time = 0.3  # Període actual entre notes segons BPM (actualitzat cada iteració)
 x, y, z = 0.0, 0.0, 0.0  # Variables globales para inputs
 cx, cy = 0.0, 0.0  # Coordenadas para Mandelbrot
-bpm = 120  # BPM actual
+bpm_raw = 120  # BPM sense filtratge
+filtered_bpm = None  # BPM suavitzat
+bpm = 120  # BPM actual (arrodonit)
+filtered_sleep_time = 0.25
+bpm_smoothing = 0.35  # Coeficient de suavitzat exponencial 0-1
+bpm_voltage_filtered = None
+bpm_voltage_smoothing = 0.2
+bpm_min = 20
+bpm_max = 220
+bpm_curve = 1.0
+
+# Control del bucle principal
+loop_sleep_min = 0.0005
+loop_sleep_max = 0.005
+loop_sleep_factor = 0.05  # Percentatge del període actual aplicat com a descans mínim
 
 # Animació LEDs idle
 led_idle_step = 0
@@ -103,9 +128,24 @@ state_harmony = {
     'initialized': False
 }
 
+# Estat específic per al mode Euclidia simplificat
+state_euclid = {
+    'initialized': False,
+    'pattern': [],
+    'accent_map': [],
+    'pulses': -1,
+    'position': 0,
+    'degree': 0,
+    'direction': 1,
+    'previous_note': None,
+    'accent_level': -1,
+}
+
 # Mode 9: Tracker programable - Configuració
 # Notes i gates (solo OFF=0, ON=50)
-sequencer_pattern = [60] * 32  # Array de notes MIDI (0-127)
+sequencer_octave = 3            # Octava base per seleccionar notes (0-8)
+sequencer_octave_base_note = 48  # Nota base corresponent a l’octava inicial (C4)
+sequencer_pattern = [sequencer_octave_base_note] * 32  # Array de notes MIDI (0-127)
 sequencer_gate = [0] * 32      # Array de gates (0=OFF, 50=ON)
 sequencer_length = 16          # Longitud actual del patró (8-32)
 sequencer_note_pot = 1         # Potenciómetro activo para notas (1=CV1, 2=CV2)
@@ -115,10 +155,13 @@ sequencer_play_position = 0    # Posició de reproducció actual
 sequencer_edit_position = 0    # Posició d'edició actual
 sequencer_mode_active = False  # Si estem al tracker (bloqueig de mode)
 sequencer_page = 0             # Pàgina actual (0=edició, 1=longitud, 2=info)
+sequencer_browse_mode = False  # Mode navegació segura (no edita)
+sequencer_browse_hold_triggered = False  # Prevenció de múltiples toggles
+sequencer_gate_pending = False  # Si s'ha de togglejar gate en deixar el botó
 
 # Estat d'edició de notes
 sequencer_note_edit_mode = False  # Si estem editant una nota
-sequencer_pending_note = 60       # Nota temporal en edició
+sequencer_pending_note = sequencer_octave_base_note  # Nota temporal en edició
 
 # Constants per a valors de gate (solo OFF y ON)
 SEQUENCER_GATE_OFF = 0    # Nota apagada
@@ -137,7 +180,12 @@ step_ritme = (pot_max - pot_min) / 36.0
 gate_active = False
 gate_off_time = 0.0
 gate_duration = 0.020  # Duració variable segons mode
-note_off_schedule = {}
+note_off_schedule = {}  # Mapa nota->temps_off per NoteOff programats
+
+# Duracions segures per a NoteOff (clamp per mantenir consistència)
+NOTE_OFF_MIN_DURATION = 0.02
+NOTE_OFF_MAX_DURATION = 1.0
+NOTE_OFF_DEFAULT_RATIO = 0.9  # Percentatge del gate per mantenir nota sostinguda
 
 # Gate percentatges per cada loop mode (% del període entre notes)
 # Això assegura que el gate és proporcional al BPM
@@ -176,3 +224,13 @@ def get_gate_duration_for_mode(mode, period):
     gate_duration = max(GATE_MIN_DURATION, min(GATE_MAX_DURATION, gate_duration))
     
     return gate_duration
+
+# Estadística i gestió d'errors
+last_midi_error = None
+midi_error_count = 0
+
+# Control de pausa després d'errors crítics
+error_pause_until = 0.0
+
+# Paràmetres de refresc per calibratge (evita sleeps bloquejants)
+calibration_frame_interval = 0.05

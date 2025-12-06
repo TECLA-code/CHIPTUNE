@@ -42,16 +42,45 @@ def apply_harmonic_interval(note, harmonic_type):
     return nota_modificada
 
 def map_value(value, in_min, in_max, out_min, out_max):
-    """Mapea un valor de un rango a otro"""
+    """Mapea un valor de un rango a otro amb protecció de divisió"""
+    if in_max == in_min:
+        return (out_min + out_max) / 2.0
     return out_min + (float(value - in_min) * (out_max - out_min) / (in_max - in_min))
 
-def voltage_to_bpm(voltage, pot_min=0.0, pot_max=3.3):
-    """Convierte voltaje a BPM (20-220 BPM)"""
-    return map_value(voltage, pot_min, pot_max, 20, 220)
+
+def normalize(value, in_min, in_max):
+    """Retorna un valor normalitzat 0-1 dins un rang"""
+    if in_max <= in_min:
+        return 0.5
+    clamped = max(in_min, min(in_max, value))
+    return (clamped - in_min) / (in_max - in_min)
+
+def voltage_to_bpm(
+    voltage,
+    pot_min=0.0,
+    pot_max=3.3,
+    bpm_min=20,
+    bpm_max=220,
+    curve=1.0,
+):
+    """Converteix voltatge a BPM amb calibratge, corba i límits configurables"""
+    norm = normalize(voltage, pot_min, pot_max)
+    norm = max(0.0, min(1.0, norm))
+    if curve != 1.0:
+        norm = norm ** curve
+    return bpm_min + (bpm_max - bpm_min) * norm
 
 def bpm_to_sleep_time(bpm):
     """Convierte BPM a tiempo de sleep en segundos"""
     return 30.0 / bpm
+
+
+def smooth_value(previous, new, alpha=0.2):
+    """Filtre de primer ordre per estabilitzar lectures"""
+    if previous is None:
+        return new
+    alpha = max(0.0, min(1.0, alpha))
+    return (alpha * new) + ((1.0 - alpha) * previous)
 
 # Funcions de processament de voltatge amb calibració
 def get_voltage_calibrated(voltage, cv_min, cv_max):

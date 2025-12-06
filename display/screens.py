@@ -130,7 +130,8 @@ class ScreenManager:
         self.hw.display.text(f"H0:{self.cfg.freqharm_base} H1:{self.cfg.freqharm1} H2:{self.cfg.freqharm2}", 0, 20, 1)
         self.hw.display.text(f"CV1:{cv1_val:0.2f}V {cv1_pct}%", 0, 30, 1)
         self.hw.display.text(f"CV2:{cv2_val:0.2f}V {cv2_pct}%", 0, 40, 1)
-        self.hw.display.text(f"Oct:{self.cfg.octava}", 0, 50, 1)
+        bpm_display = self.cfg.filtered_bpm if self.cfg.filtered_bpm is not None else self.cfg.bpm
+        self.hw.display.text(f"Oct:{self.cfg.octava} BPM:{int(round(bpm_display))}", 0, 50, 1)
         self.hw.display.show()
     
     def mostrar_tracker_edit(self):
@@ -144,6 +145,8 @@ class ScreenManager:
         
         header = f"TRK L:{length:02d} S:{edit_pos:02d}/{length:02d}"
         self.hw.display.text(header, 0, 0, 1)
+        if self.cfg.sequencer_browse_mode:
+            self.hw.display.text("*", 120, 0, 1)
         self.hw.display.hline(0, 8, 128, 1)
         
         # Mostrar 6 steps visibles
@@ -226,9 +229,9 @@ class ScreenManager:
         
         # CV percentatges
         try:
-            cv1_raw = self.hw.get_voltage(self.hw.pote_analog_1)
-            cv1_pct = get_voltage_percentage(cv1_raw, self.cfg.cv1_min, self.cfg.cv1_max)
-            self.hw.display.text(f"VEL:{cv1_pct}%", 0, 42, 1)
+            slider_raw = self.hw.get_voltage(self.hw.pote_velocidad)
+            slider_pct = int(max(0, min(100, (slider_raw / 3.3) * 100)))
+            self.hw.display.text(f"VEL:{slider_pct}%", 0, 42, 1)
         except:
             pass
         
@@ -304,7 +307,7 @@ class ScreenManager:
         self.hw.display.text(f"Min:{self.cfg.cv1_min:.2f}", 0, 25, 1)
         self.hw.display.text(f"Max:{self.cfg.cv1_max:.2f}", 70, 25, 1)
         
-        self.hw.display.text("CV2 (LDR):", 0, 38, 1)
+        self.hw.display.text("CV2 (Param):", 0, 38, 1)
         self.hw.display.text(f"{cv2_actual:.2f}V", 80, 38, 1)
         self.hw.display.text(f"Min:{self.cfg.cv2_min:.2f}", 0, 48, 1)
         self.hw.display.text(f"Max:{self.cfg.cv2_max:.2f}", 70, 48, 1)

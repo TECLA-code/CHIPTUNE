@@ -7,6 +7,7 @@ import random
 # Constants de temps per polsacions llargues - Temps Humà Natural
 LONG_PRESS_SUMMARY = 1.5  # 1.5s - Mostrar resum complet (Extra1) - més deliberat
 LONG_PRESS_PAUSE = 1.5    # 1.5s - Pausa total/stop (Extra2) - evita stops accidentals
+BROWSE_HOLD_THRESHOLD = 0.6  # Temps per activar/desactivar navegació segura al tracker
 
 # Debounce times globals
 _debounce = {}
@@ -81,11 +82,18 @@ def process_buttons(hw, cfg, rtos, current_time):
             hw.all_leds_off()
             cfg.button_long_press_triggered[5] = True
     elif cfg.button_hold_times[5] > 0:
-        # Deixa anar: si no era llarga, enrere configout
+        # Deixa anar: si no era llarga
         if not cfg.button_long_press_triggered[5]:
-            cfg.configout = (cfg.configout - 1) % 9  # 9 opcions: 8-0 (rota circular enrere)
-            cfg.show_config_mode = True
-            cfg.config_display_timer = 0
+            if cfg.sequencer_mode_active:
+                # Tracker: utilitzar com octavador circular propi
+                cfg.sequencer_octave = (cfg.sequencer_octave + 1) % 9
+                cfg.octava = cfg.sequencer_octave  # Sincronitzar indicador global
+                cfg.sequencer_pending_note = (cfg.sequencer_octave + 1) * 12
+                cfg.caos = 0
+            else:
+                cfg.configout = (cfg.configout - 1) % 9  # 9 opcions: 8-0 (rota circular enrere)
+                cfg.show_config_mode = True
+                cfg.config_display_timer = 0
         cfg.button_hold_times[5] = 0
         cfg.button_long_press_triggered[5] = False
         cfg.last_interaction_time = current_time
@@ -143,6 +151,9 @@ def process_buttons(hw, cfg, rtos, current_time):
         if cfg.button_debounce_time[2] == 0:
             cfg.button_debounce_time[2] = current_time
             cfg.config_hold_time = 0.0
+            if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.configout == 0:
+                cfg.sequencer_gate_pending = True
+                cfg.sequencer_browse_hold_triggered = False
         
         # Calcular acceleració exponencial - Progressió més natural
         cfg.config_hold_time = current_time - cfg.button_debounce_time[2]
@@ -156,22 +167,17 @@ def process_buttons(hw, cfg, rtos, current_time):
             cfg.config_acceleration = 1
         
         cfg.last_interaction_time = current_time
-        
-        if cfg.configout == 0:
-            if cfg.sequencer_mode_active and cfg.sequencer_page == 0:
-                # MODE TRACKER - Pàgina 0: Cíclic entre OFF → ON → OFF
-                current_gate = cfg.sequencer_gate[cfg.sequencer_edit_position]
-                if current_gate == cfg.SEQUENCER_GATE_OFF:
-                    new_gate = cfg.SEQUENCER_GATE_ON
-                else:
-                    new_gate = cfg.SEQUENCER_GATE_OFF
-                cfg.sequencer_gate[cfg.sequencer_edit_position] = new_gate
-                # Sortir del mode edició de nota si està actiu
+
+        if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.configout == 0:
+            if cfg.config_hold_time > BROWSE_HOLD_THRESHOLD and not cfg.sequencer_browse_hold_triggered:
+                cfg.sequencer_browse_mode = not cfg.sequencer_browse_mode
+                cfg.sequencer_browse_hold_triggered = True
+                cfg.sequencer_gate_pending = False
                 cfg.sequencer_note_edit_mode = False
-            elif cfg.sequencer_mode_active and cfg.sequencer_page == 1:
+        elif cfg.configout == 0:
+            if cfg.sequencer_mode_active and cfg.sequencer_page == 1:
                 # Pàgina 1: Disminuir longitud
                 cfg.sequencer_length = max(8, cfg.sequencer_length - 1)
-                # Ajustar edit position si està fora de rang
                 if cfg.sequencer_edit_position >= cfg.sequencer_length:
                     cfg.sequencer_edit_position = cfg.sequencer_length - 1
             elif not cfg.sequencer_mode_active:
@@ -199,9 +205,20 @@ def process_buttons(hw, cfg, rtos, current_time):
         
         cfg.show_config_mode = True
         cfg.config_display_timer = 0
-        
-        # Debounce gestionat pel sistema temporal (button_debounce_time)
     else:
+        if cfg.button_debounce_time[2] > 0:
+            if (cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.configout == 0
+                    and cfg.sequencer_gate_pending and not cfg.sequencer_browse_hold_triggered
+                    and not cfg.sequencer_browse_mode):
+                current_gate = cfg.sequencer_gate[cfg.sequencer_edit_position]
+                if current_gate == cfg.SEQUENCER_GATE_OFF:
+                    new_gate = cfg.SEQUENCER_GATE_ON
+                else:
+                    new_gate = cfg.SEQUENCER_GATE_OFF
+                cfg.sequencer_gate[cfg.sequencer_edit_position] = new_gate
+                cfg.sequencer_note_edit_mode = False
+            cfg.sequencer_gate_pending = False
+            cfg.sequencer_browse_hold_triggered = False
         cfg.button_debounce_time[2] = 0
         cfg.config_acceleration = 1
     
@@ -225,14 +242,15 @@ def process_buttons(hw, cfg, rtos, current_time):
         cfg.last_interaction_time = current_time
         
         # Si es una pulsación corta en modo Tracker, cambiar el potenciómetro activo
-        if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.config_hold_time < 0.3 and not cfg.sequencer_note_edit_mode:
+        if (cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.config_hold_time < 0.3
+                and not cfg.sequencer_note_edit_mode and not cfg.sequencer_browse_mode):
             # Cambiar entre potenciómetro 1 (CV1) y 2 (CV2) para control de notas
             cfg.sequencer_note_pot = 2 if cfg.sequencer_note_pot == 1 else 1
             # Mostrar indicación visual del cambio
             cfg.show_config_mode = True
             cfg.config_display_timer = 0
         elif cfg.configout == 0:
-            if cfg.sequencer_mode_active and cfg.sequencer_page == 0:
+            if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and not cfg.sequencer_browse_mode:
                 # MODE TRACKER - Pàgina 0: Confirmar canvi de nota o entrar en mode edició
                 if cfg.sequencer_note_edit_mode:
                     # Confirmar canvi de nota

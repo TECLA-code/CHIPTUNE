@@ -186,9 +186,11 @@ class ModeLoader:
         intensidad_lluvia = converters.steps(y)   # Intensitat pluja: 0-127
         frecuencia_rayos = converters.steps(z)    # Freqüència llamps: 0-127
         
-        # Calcular nota base segons la intensitat de la pluja
-        nota_base = 12 * min(self.cfg.octava, 9) + int(intensidad_lluvia * 0.09)
-        nota_base = max(0, min(127, nota_base))  # Assegurar rang MIDI vàlid
+        # Calcular nota base dins de l'octava actual
+        nota_min = 12 * self.cfg.octava
+        nota_max = min(nota_min + 11, 127)
+        nota_base = nota_min + int(intensidad_lluvia * 0.09)
+        nota_base = max(nota_min, min(nota_max, nota_base))
         
         # Decidir si toca un llamp (aleatori segons freqüència)
         if random.randint(0, 1000) < (frecuencia_rayos * 8):  # Probabilitat 0-101.6%
@@ -199,7 +201,7 @@ class ModeLoader:
             for i, intervalo in enumerate(escala_tormenta[::direccion]):
                 multiplicador = max(1, min(3, (i+1)))  # Intensificar el llamp
                 nota_relampago = nota_base + (intervalo * direccion * multiplicador)
-                nota_relampago = max(0, min(127, nota_relampago))  # Rang vàlid
+                nota_relampago = max(nota_min, min(nota_max, nota_relampago))
                 
                 # Mode CAOS: llamps en octaves aleatòries
                 if self.cfg.caos == 1:
@@ -214,7 +216,7 @@ class ModeLoader:
         else:
             # PLUJA: Notes constants amb petites variacions
             variacion_lluvia = random.randint(-3, 3)  # Variació aleatòria ±3 semitons
-            nota_lluvia = max(0, min(127, nota_base + variacion_lluvia))
+            nota_lluvia = max(nota_min, min(nota_max, nota_base + variacion_lluvia))
             
             # Mode CAOS: pluja en octaves aleatòries
             if self.cfg.caos == 1:
@@ -245,42 +247,54 @@ class ModeLoader:
         # Inicialitzar estat la primera vegada
         if not self.cfg.state_harmony['initialized']:
             self.cfg.state_harmony.update({
-                'previous_note': 60,      # Nota inicial (Do central)
-                'last_profile': 0,        # Últim perfil usat
-                'last_tension': 0,        # Última tensió usada
-                'initialized': True       # Marcar com inicialitzat
+                'previous_note': 12 * self.cfg.octava,
+                'chord_step': 0,
+                'initialized': True
             })
-        
-        # Convertir voltatges en paràmetres harmònics
-        x_param = converters.steps(y) % 128  # Perfil harmònic: 0-127
-        y_param = converters.steps(z) % 128  # Tensió harmònica: 0-127
-        
-        # Calcular la millor nota següent (algorisme harmònic)
-        new_note = algorithms.harmonic_next_note(x_param, y_param, 
-                                                  self.cfg.state_harmony['previous_note'])
-        
-        # Mantenir nota dins l'octava actual
-        nota_min = 12 * self.cfg.octava
-        nota_max = nota_min + 11
-        new_note = max(nota_min, min(nota_max, new_note))
-        
+
+        # Escala base (major) i selecció d'arrel/tensió
+        major_scale = [0, 2, 4, 5, 7, 9, 11]
+        root_index = min(len(major_scale) - 1, converters.steps(y) // 18)
+        tension_level = min(3, converters.steps(z) // 32)  # 0-3
+
+        chord_shapes = [
+            [0, 4, 7],      # Triada major
+            [0, 3, 7],      # Triada menor
+            [0, 4, 7, 11],  # Major 7
+            [0, 3, 7, 10],  # Menor 7
+        ]
+
+        chord = chord_shapes[tension_level]
+        base_note = self.cfg.octava * 12
+        root_interval = major_scale[root_index]
+
+        step_index = self.cfg.state_harmony.get('chord_step', 0) % len(chord)
+        interval = chord[step_index]
+        new_note = base_note + root_interval + interval
+
+        # Mantenir la nota dins l'octava base
+        while new_note > base_note + 11:
+            new_note -= 12
+        while new_note < base_note:
+            new_note += 12
+
         # Mode CAOS: afegir notes en octaves aleatòries
-        if self.cfg.caos == 1:
+        if self.cfg.caos == 1 and self.cfg.caos_note != 0:
             octava_new = random.randint(0, 8)
-            if self.cfg.caos_note != 0:
-                self.midi.play_note_full(new_note, 1, octava_new, sleep_time * 20,
-                                          0, self.cfg.freqharm1, self.cfg.freqharm2)
-        
-        # Guardar estat per la següent nota (memòria harmònica)
+            self.midi.play_note_full(new_note, 1, octava_new, sleep_time * 20,
+                                      0, self.cfg.freqharm1, self.cfg.freqharm2)
+
+        # Guardar estat per la següent iteració
         self.cfg.state_harmony.update({
-            'previous_note': new_note,                   # Recordar aquesta nota
-            'last_profile': min(x_param // 21, 5),      # Recordar perfil
-            'last_tension': min(y_param // 32, 3)       # Recordar tensió
+            'previous_note': new_note,
+            'chord_step': (step_index + 1) % len(chord),
+            'initialized': True,
+            'last_root': root_index,
+            'last_tension': tension_level,
         })
-        
-        # Tocar cada 2 iteracions per ritme harmònic
-        play = 1 if self.cfg.iteration % 2 == 0 else 0
-        self.midi.play_note_full(new_note, play, self.cfg.octava, sleep_time * 20,
+
+        # Tocar la nota actual
+        self.midi.play_note_full(new_note, 1, self.cfg.octava, sleep_time * 20,
                                   0, self.cfg.freqharm1, self.cfg.freqharm2)
     
     # =========================================================================
@@ -300,12 +314,16 @@ class ModeLoader:
         
         # Convertir voltatges en paràmetres del bosc
         densidad = converters.steps(y) // 13 + 1  # Densitat: 1-10 notes/cicle
-        profundidad_raw = converters.steps(z) // 16   # Profunditat: 0-7 octaves
-        profundidad = min(profundidad_raw, 10 - self.cfg.octava)  # Limitar rang
+        profundidad = converters.steps(z) // 16   # Profunditat: 0-7 octaves addicionals
         
-        # Calcular rang de notes segons profunditat
-        nota_min = 12 * (self.cfg.octava + profundidad)  # Nota més greu
-        nota_max = nota_min + 11                          # Nota més aguda
+        # Distribuir profunditat al voltant de l'octava base (tant avall com es pugui)
+        octaves_down = min(profundidad, self.cfg.octava)
+        octaves_up = min(profundidad, 10 - self.cfg.octava)
+        base_octave = max(self.cfg.octava - octaves_down, 0)
+        top_octave = min(self.cfg.octava + octaves_up, 10)
+        
+        nota_min = 12 * base_octave
+        nota_max = 12 * top_octave + 11
         
         # Cada X iteracions, fer un "salt" (com un ocell que canvia de branca)
         if self.cfg.iteration % densidad == 0:
@@ -391,37 +409,106 @@ class ModeLoader:
     # Exemple: 3 pulsos en 8 steps = [X..X..X.] (tresillo afro-cubano)
     # =========================================================================
     def _mode_euclidiano(self, y, z, sleep_time):
-        """Mode 7: Euclidia - Ritmes algorítmics perfectes"""
-        
-        # Convertir voltatges en paràmetres rítmics
-        pulsos = converters.steps(y) // 2 + 1        # Pulsos: 1-64
-        steps_total = converters.steps(z) // 2 + 1   # Steps: 1-64
-        
-        # Reiniciar posició si arriba al final del patró
-        if self.cfg.position >= steps_total:
-            self.cfg.position = 0
-        
-        # Generar el patró rítmic euclidià (llista de 0s i 1s)
-        ritmo = algorithms.generar_ritmo_euclideo(pulsos, steps_total)
-        to_play = ritmo[self.cfg.position]  # Agafar el valor actual (0 o 1)
-        
-        # Nota base amb petita variació aleatòria
-        nota_base = (self.cfg.octava * 12) + random.randint(-3, 3) if self.cfg.position > 0 else 0
-        nota_base = max(0, min(127, nota_base))  # Assegurar rang MIDI
-        
-        # Mode CAOS: ritmes en octaves aleatòries
-        if self.cfg.caos == 1:
+        """Mode 7: Euclidia - Seqüència harmònica sobre patró fix de 32 steps"""
+        state = self.cfg.state_euclid
+
+        if not state['initialized']:
+            state.update({
+                'initialized': True,
+                'pattern': [0] * 32,
+                'accent_map': [0] * 32,
+                'pulses': -1,
+                'accent_level': -1,
+                'position': 0,
+                'degree': 0,
+                'direction': 1,
+                'previous_note': None,
+            })
+
+        slider_steps = converters.steps(z)
+
+        # Ajustar paràmetres des dels controls
+        pulses = min(32, slider_steps // 4)  # Slider: nombre de "1" en 32 steps
+        accent_level = min(32, converters.steps(y) // 4)  # CV2: nombre d'accents
+
+        major_scale = [0, 2, 4, 5, 7, 9, 11]
+        base_note = max(0, min(12 * self.cfg.octava, 120))
+
+        if state['previous_note'] is None:
+            state['previous_note'] = base_note + major_scale[0]
+
+        # Recalcular patró o accents si ha canviat algun paràmetre
+        if pulses != state['pulses'] or accent_level != state['accent_level']:
+            if pulses > 0:
+                pattern = algorithms.generar_ritmo_euclideo(pulses, 32)
+            else:
+                pattern = [0] * 32
+
+            accent_map = [0] * 32
+            if pulses > 0 and accent_level > 0:
+                ones_idx = [idx for idx, value in enumerate(pattern) if value == 1]
+                accent_count = min(len(ones_idx), accent_level)
+                if accent_count > 0:
+                    spacing = len(ones_idx) / accent_count
+                    for i in range(accent_count):
+                        target = ones_idx[min(len(ones_idx) - 1, int(i * spacing))]
+                        accent_map[target] = 1
+
+            state.update({
+                'pattern': pattern,
+                'accent_map': accent_map,
+                'pulses': pulses,
+                'accent_level': accent_level,
+                'position': 0,
+                'degree': 0,
+                'direction': 1,
+                'previous_note': base_note + major_scale[0],
+            })
+
+        step_index = state['position'] % 32
+        gate = state['pattern'][step_index] if state['pattern'] else 0
+        accent = state['accent_map'][step_index] if state['accent_map'] else 0
+
+        current_note = state['previous_note'] or (base_note + major_scale[0])
+        play = 0
+
+        if gate == 1:
+            step_size = 2 if accent else 1
+            degree = state['degree']
+            direction = state['direction']
+            new_degree = degree + (direction * step_size)
+
+            if new_degree >= len(major_scale):
+                new_degree = len(major_scale) - 1
+                direction = -1
+            elif new_degree < 0:
+                new_degree = 0
+                direction = 1
+
+            current_note = base_note + major_scale[new_degree]
+
+            # Aplicar una desviació mínima segons el slider (±1 semitò)
+            slider_offset = int(round(((slider_steps / 127.0) - 0.5) * 2))
+            current_note += slider_offset
+
+            state['degree'] = new_degree
+            state['direction'] = direction
+            state['previous_note'] = current_note
+            play = 1
+
+        current_note = max(0, min(127, current_note))
+
+        # Mode CAOS: mantenim compatibilitat amb octaves aleatòries
+        if self.cfg.caos == 1 and play == 1 and self.cfg.caos_note != 0:
             octava_new = random.randint(0, 8)
-            if self.cfg.caos_note != 0:
-                self.midi.play_note_full(nota_base, to_play, octava_new, sleep_time * 20,
-                                          0, self.cfg.freqharm1, self.cfg.freqharm2)
-        
-        # Tocar la nota segons el ritme euclidià (to_play = 0 o 1)
-        self.midi.play_note_full(nota_base, to_play, self.cfg.octava, sleep_time * 20,
+            self.midi.play_note_full(current_note, 1, octava_new, sleep_time * 20,
+                                      0, self.cfg.freqharm1, self.cfg.freqharm2)
+
+        self.midi.play_note_full(current_note, play, self.cfg.octava, sleep_time * 20,
                                   0, self.cfg.freqharm1, self.cfg.freqharm2)
-        
-        # Avançar posició pel següent step
-        self.cfg.position += 1
+
+        state['position'] = (step_index + 1) % 32
+        self.cfg.position = state['position']
     
     # =========================================================================
     # MODE 8: COSMOS
@@ -470,14 +557,15 @@ class ModeLoader:
             converters.steps_ritme(y),      # Pulsos
             converters.steps_ritme(z) + 1   # Steps
         )
-        to_play = ritmo[self.cfg.iteration % len(ritmo)]  # Ritme actual
-        
-        # Combinar ritme euclidià amb ritme de 2 steps
-        play = 1 if self.cfg.iteration % 2 == 0 else 0
-        final_play = play * to_play  # Ambdos han de ser 1 per tocar
-        
+        pattern_value = ritmo[self.cfg.iteration % len(ritmo)]  # Ritme actual
+
+        # Invertir el gate: per defecte encès, s'apaga quan el patró és 0
+        play = 1
+        if pattern_value == 0:
+            play = 0 if (self.cfg.iteration % 2 == 0) else 1
+
         # Tocar la nota còsmica!
-        self.midi.play_note_full(base_note, final_play, octava_to_use, sleep_time * 20,
+        self.midi.play_note_full(base_note, play, octava_to_use, sleep_time * 20,
                                   0, self.cfg.freqharm1, self.cfg.freqharm2)
         
         # Incrementar iteració (amb reinici a 60000)
@@ -535,18 +623,22 @@ class ModeLoader:
             self.cfg.sequencer_edit_position = 31
         
         # Control de nota con el potenciómetro seleccionado (CV1 o CV2)
-        if self.cfg.sequencer_page == 0:  # Solo en la página de edición de notas
+        if self.cfg.sequencer_page == 0 and not self.cfg.sequencer_browse_mode:  # Solo editar si no és browse
             # Usar el potenciómetro seleccionado según la configuración
             # potes[2] = GP26 = CV1
             # potes[1] = GP27 = CV2
             pot_index = 2 if self.cfg.sequencer_note_pot == 1 else 1  # 2=CV1, 1=CV2
             
-            # Mapear el valor del potenciómetro a 0-127
-            note_value = int(converters.map_value(
+            # Mapear el valor del potenciómetro al rang complet de l'octava actual (12 semitons)
+            semi_offset = int(converters.map_value(
                 self.hw.potes[pot_index].value,
                 0, 65535,  # Rango del ADC
-                0, 127     # Rango MIDI
+                0, 11      # 12 semitonos dins l'octava
             ))
+            semi_offset = max(0, min(11, semi_offset))
+            octave_base = (self.cfg.sequencer_octave + 1) * 12  # C de l'octava (veure taula MIDI)
+            note_value = octave_base + semi_offset
+            self.cfg.sequencer_octave_base_note = octave_base
             
             if self.cfg.sequencer_note_edit_mode:
                 # Modo edición: actualizar la nota pendiente

@@ -3,8 +3,19 @@
 # =============================================================================
 import time
 from adafruit_midi.note_on import NoteOn
+from adafruit_midi.note_off import NoteOff
+from adafruit_midi.control_change import ControlChange
 from music.converters import midi_to_frequency, apply_harmonic_interval
-from core.config import get_gate_duration_for_mode, duty_percent_to_cycle
+from core.config import (
+    get_gate_duration_for_mode,
+    duty_percent_to_cycle,
+    NOTE_OFF_MIN_DURATION,
+    NOTE_OFF_MAX_DURATION,
+    NOTE_OFF_DEFAULT_RATIO,
+)
+
+ALL_NOTES_OFF_CC = 123
+
 
 class MidiHandler:
     """Gestió de notes MIDI i PWM amb sistema RTOS i duty cycles individuals"""
@@ -31,10 +42,7 @@ class MidiHandler:
         
         # Silencio: apagar gate inmediatament
         if play == 0 or note == 0:
-            self.hw.out_jack.value = False
-            self.hw.led_2.value = False
-            self.cfg.gate_active = False
-            self.cfg.nota_tocada_ara = False
+            self._stop_note_immediate(note)
             return
         
         # Marcar que s'ha tocat nota (per raig caos)
@@ -48,15 +56,22 @@ class MidiHandler:
         self.hw.out_jack.value = True
         self.hw.led_2.value = True
         self.cfg.gate_active = True
+        self.cfg.gate_duration = gate_duration
         self.cfg.gate_off_time = current_time + gate_duration
         
         # --- Nota MIDI amb duració programada ---
-        self.hw.midi.send(NoteOn(note, 100))
+        try:
+            self.hw.midi.send(NoteOn(note, 100))
+        except Exception as exc:  # pragma: no cover - runtime safeguard
+            self._handle_midi_error(exc)
+            self._stop_note_immediate(note, suppress_midi=True)
+            return
+
         self.cfg.playing_notes.add(note)
-        
-        note_duration = periode / 200.0
-        note_off_time = current_time + note_duration
-        self.cfg.note_off_schedule[note] = note_off_time
+
+        note_duration = gate_duration * NOTE_OFF_DEFAULT_RATIO
+        note_duration = max(NOTE_OFF_MIN_DURATION, min(NOTE_OFF_MAX_DURATION, note_duration))
+        self.cfg.note_off_schedule[note] = current_time + note_duration
         
         # --- Armònics i PWM ---
         freq0 = getattr(self.cfg, "freqharm_base", 0)
@@ -80,3 +95,39 @@ class MidiHandler:
         self.hw.pwm1.duty_cycle = duty_cycle1
         self.hw.pwm2.duty_cycle = duty_cycle2
         self.hw.pwm3.duty_cycle = duty_cycle3
+
+    def all_notes_off(self):
+        """Envia All Notes Off i neteja estat intern."""
+        for active_note in list(self.cfg.playing_notes):
+            self._stop_note_immediate(active_note)
+
+        try:
+            self.hw.midi.send(ControlChange(ALL_NOTES_OFF_CC, 0))
+        except Exception as exc:  # pragma: no cover - runtime safeguard
+            self._handle_midi_error(exc)
+
+    def _stop_note_immediate(self, note, suppress_midi=False):
+        """Apaga immediatament una nota específica i neteja els registres."""
+        if note in self.cfg.note_off_schedule:
+            del self.cfg.note_off_schedule[note]
+        if note in self.cfg.playing_notes:
+            self.cfg.playing_notes.remove(note)
+
+        if not suppress_midi and note not in (None, 0):
+            try:
+                self.hw.midi.send(NoteOff(note, 0))
+            except Exception as exc:  # pragma: no cover - runtime safeguard
+                self._handle_midi_error(exc)
+
+        self.hw.out_jack.value = False
+        self.hw.led_2.value = False
+        self.cfg.gate_active = False
+        self.cfg.nota_tocada_ara = False
+
+    def _handle_midi_error(self, error):
+        """Registra errors MIDI i estableix període de pausa."""
+        self.cfg.last_midi_error = repr(error)
+        self.cfg.midi_error_count += 1
+        pause_until = time.monotonic() + 0.2
+        if pause_until > self.cfg.error_pause_until:
+            self.cfg.error_pause_until = pause_until
