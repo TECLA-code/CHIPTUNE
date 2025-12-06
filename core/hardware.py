@@ -127,12 +127,6 @@ class TeclaHardware:
         elif cfg.configout == 6:  # Harmònic PWM3
             self.led_6.value = True
             self.led_7.value = True
-        elif cfg.configout == 7:  # CV1 Range
-            self.led_3.value = True
-            self.led_6.value = True
-        elif cfg.configout == 8:  # CV2 Range
-            self.led_4.value = True
-            self.led_7.value = True
         
         # LED2 SEMPRE controlat exclusivament pel gate (no es toca aquí)
         # El gate s'actualitza automàticament via RTOS i midi_handler
@@ -203,10 +197,8 @@ class TeclaHardware:
                 4: ("off", "solid", "pulse"),
                 5: ("off", "solid", "solid"),
                 6: ("pulse", "off", "solid"),
-                7: ("pulse", "off", "pulse"),
-                8: ("solid", "pulse", "pulse"),
             }
-            states = menu_patterns.get(cfg.configout % 9, ("off", "off", "off"))
+            states = menu_patterns.get(cfg.configout % 7, ("off", "off", "off"))
             for led, state in zip((self.led_6, self.led_3, self.led_7), states):
                 if state == "solid":
                     led.value = True

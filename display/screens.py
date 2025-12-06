@@ -3,7 +3,6 @@
 # =============================================================================
 import time
 from music.converters import midi_to_note_name
-from core.config import CV_RANGE_PRESETS
 
 # Constants de timing per display - Adaptades a resposta humana
 IDLE_SUMMARY_START = 6.0  # Iniciar resum complet després de 6s (més relaxat)
@@ -40,7 +39,7 @@ class ScreenManager:
     }
     
     # Noms dels paràmetres de configuració
-    CONFIG_NAMES = ["Mode", "Cicle1", "Cicle2", "Cicle3", "H0", "H1", "H2", "CV1", "CV2"]
+    CONFIG_NAMES = ["Mode", "Cicle1", "Cicle2", "Cicle3", "H0", "H1", "H2"]
     
     def __init__(self, hardware, config):
         self.hw = hardware
@@ -94,14 +93,6 @@ class ScreenManager:
                 self.hw.display.text("HARMONIC 2", 10, 10, 1)
                 harm_name = self.HARMONIC_NAMES.get(self.cfg.freqharm2, '---')
                 self.hw.display.text(harm_name, 10, 30, 1)
-            elif self.cfg.configout == 7:
-                _, _, range_name = CV_RANGE_PRESETS[self.cfg.cv1_range_config]
-                self.hw.display.text("CV1 RANGE", 20, 10, 1)
-                self.hw.display.text(range_name, 25, 30, 1)
-            elif self.cfg.configout == 8:
-                _, _, range_name = CV_RANGE_PRESETS[self.cfg.cv2_range_config]
-                self.hw.display.text("CV2 RANGE", 20, 10, 1)
-                self.hw.display.text(range_name, 25, 30, 1)
             
             # LÍNIA 3: Nota actual (petita, abaix)
             self.hw.display.text(f"Oct:{self.cfg.octava} {note_name}", 30, 54, 1)
@@ -263,10 +254,6 @@ class ScreenManager:
             return self.cfg.freqharm1
         elif self.cfg.configout == 6:
             return self.cfg.freqharm2
-        elif self.cfg.configout == 7:
-            return self.cfg.cv1_range_config
-        elif self.cfg.configout == 8:
-            return self.cfg.cv2_range_config
         return 0
     
     def mostrar_loop_mode_animat(self):
@@ -302,12 +289,12 @@ class ScreenManager:
         
         self.hw.display.text("CALIBRACIO CV", 10, 0, 1)
         self.hw.display.hline(0, 10, 128, 1)
-        self.hw.display.text("CV1 (Slider):", 0, 15, 1)
+        self.hw.display.text("CV1 (Pote):", 0, 15, 1)
         self.hw.display.text(f"{cv1_actual:.2f}V", 80, 15, 1)
         self.hw.display.text(f"Min:{self.cfg.cv1_min:.2f}", 0, 25, 1)
         self.hw.display.text(f"Max:{self.cfg.cv1_max:.2f}", 70, 25, 1)
         
-        self.hw.display.text("CV2 (Param):", 0, 38, 1)
+        self.hw.display.text("CV2 (LDR):", 0, 38, 1)
         self.hw.display.text(f"{cv2_actual:.2f}V", 80, 38, 1)
         self.hw.display.text(f"Min:{self.cfg.cv2_min:.2f}", 0, 48, 1)
         self.hw.display.text(f"Max:{self.cfg.cv2_max:.2f}", 70, 48, 1)

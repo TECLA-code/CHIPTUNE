@@ -9,6 +9,8 @@ LONG_PRESS_SUMMARY = 1.5  # 1.5s - Mostrar resum complet (Extra1) - més deliber
 LONG_PRESS_PAUSE = 1.5    # 1.5s - Pausa total/stop (Extra2) - evita stops accidentals
 BROWSE_HOLD_THRESHOLD = 0.6  # Temps per activar/desactivar navegació segura al tracker
 
+CONFIG_OPTION_COUNT = 7  # Mode, 3 duty i 3 harmònics
+
 # Debounce times globals
 _debounce = {}
 for i in range(6):
@@ -53,7 +55,7 @@ def process_buttons(hw, cfg, rtos, current_time):
                 cfg.sequencer_page = (cfg.sequencer_page + 1) % 3
             else:
                 # MODE NORMAL: Ciclar configout
-                cfg.configout = (cfg.configout + 1) % 9
+                cfg.configout = (cfg.configout + 1) % CONFIG_OPTION_COUNT
                 cfg.show_config_mode = True
                 cfg.config_display_timer = 0
         else:
@@ -91,7 +93,7 @@ def process_buttons(hw, cfg, rtos, current_time):
                 cfg.sequencer_pending_note = (cfg.sequencer_octave + 1) * 12
                 cfg.caos = 0
             else:
-                cfg.configout = (cfg.configout - 1) % 9  # 9 opcions: 8-0 (rota circular enrere)
+                cfg.configout = (cfg.configout - 1) % CONFIG_OPTION_COUNT  # Rota circular enrere
                 cfg.show_config_mode = True
                 cfg.config_display_timer = 0
         cfg.button_hold_times[5] = 0
@@ -196,12 +198,6 @@ def process_buttons(hw, cfg, rtos, current_time):
             cfg.freqharm1 = (cfg.freqharm1 - 1) % 9
         elif cfg.configout == 6:
             cfg.freqharm2 = (cfg.freqharm2 - 1) % 9
-        elif cfg.configout == 7:
-            cfg.cv1_range_config = (cfg.cv1_range_config - 1) % 5
-            cfg.apply_cv1_range_preset()
-        elif cfg.configout == 8:
-            cfg.cv2_range_config = (cfg.cv2_range_config - 1) % 5
-            cfg.apply_cv2_range_preset()
         
         cfg.show_config_mode = True
         cfg.config_display_timer = 0
@@ -279,12 +275,6 @@ def process_buttons(hw, cfg, rtos, current_time):
             cfg.freqharm1 = (cfg.freqharm1 + 1) % 9
         elif cfg.configout == 6:
             cfg.freqharm2 = (cfg.freqharm2 + 1) % 9
-        elif cfg.configout == 7:
-            cfg.cv1_range_config = (cfg.cv1_range_config + 1) % 5
-            cfg.apply_cv1_range_preset()
-        elif cfg.configout == 8:
-            cfg.cv2_range_config = (cfg.cv2_range_config + 1) % 5
-            cfg.apply_cv2_range_preset()
         
         cfg.show_config_mode = True
         cfg.config_display_timer = 0
