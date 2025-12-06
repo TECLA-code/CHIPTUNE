@@ -4,6 +4,12 @@ Descripció general
 - TECLA és un sintetitzador MIDI modular basat en CircuitPython que genera sons i seqüències a través de modes d'operació especialitzats i envia sortida MIDI externa.
 - El sistema integra gestors dedicats per hardware, RTOS, pantalla i animacions per coordinar notes, LEDs i interfície d'usuari.
 
+Petit disclaimer confusions CV1/SLIDER:
+
+- En algún moment els nostres culs han decidit liar tota l'estona les paraules slider i cv1 al codi, perquè vam confondre GP26 amb GP28, si, és un mal de cap, ho se.
+  Pero bueno, la cosa ja està molt liada, quedeu-vos amb el que us dic jo ara, el slider de la PCB, està conectat a GP28 i el Potenciomentre(CV1) està conectat a GP26
+- Prometem solucionar-ho en algún moment peró no hi ha manera de fer-ho sense cargar-nos res més, de cara l'usuari funciona pero demanem disculpes per qui vulgui programar.
+
 Aspectes principals
 - Arquitectura modular: el bucle principal llegeix entrades, executa el mode actiu i actualitza RTOS, display i animacions.
 - Control físic amb 3 potenciòmetres analògics (CV1, CV2 i slider) i 6 botons (4 de direcció + 2 extres).
@@ -27,7 +33,7 @@ Potenciòmetres
 
 Botons
 - Extra 1 (GP5): clic curt per ciclar entre paràmetres de configuració o pàgines del sequenciador; mantenir >1,5s mostra el resum complet.
-- Extra 2 (GP4): clic curt per retrocedir configuracions; mantenir >1,5s atura el sistema, reinicia iteracions i surt del sequenciador.
+- Extra 2 (GP4): clic curt per retrocedir configuracions; mantenir >1,5s atura el sistema, reinicia iteracions i surt del sequenciador si ho polsem durant un periode de temps, si no funciona d'octavador.
 - Crueta 1 (GP13): puja l'octava; en mode tracker, retrocedeix la posició d'edició; a l'extrem superior alterna el mode caos.
 - Crueta 2 (GP14): baixa l'octava; en mode tracker, avança la posició d'edició; a l'extrem inferior alterna el mode caos.
 - Crueta 3 (GP15): mantingut per disminuir el valor del paràmetre actiu amb acceleració; en tracker gestiona gates i longitud.
