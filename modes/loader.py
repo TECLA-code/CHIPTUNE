@@ -602,19 +602,13 @@ class ModeLoader:
         # Activar bloqueig de mode (no es pot canviar a altres modes)
         self.cfg.sequencer_mode_active = True
         
-        # Calcular BPM i sleep time (amb CV1 calibrat)
-        current_bpm = converters.voltage_to_bpm(x)
+        # Use the stable system sleep_time directly
+        # This fixes the rhythm instability caused by recalculating BPM locally from raw voltage
         
-        # Aplicar factor de velocidad al Tracker (3x más rápido)
-        # Usamos min() para no exceder el límite de 220 BPM
-        tracker_bpm = min(current_bpm * 3, 220)
-        
-        # Usar el BPM ajustado para calcular el sleep_time
-        sleep_time = converters.bpm_to_sleep_time(tracker_bpm)
-        
-        # Guardar el BPM real para mostrar en la interfaz
-        self.cfg.current_sleep_time = sleep_time  # Guardar per sincronització de gate
-        self.cfg.bpm = current_bpm  # Mantener el BPM original para la interfaz
+        # Guardar el BPM real para mostrar en la interfaz (aproximado desde el sleep_time actual)
+        self.cfg.current_sleep_time = sleep_time
+        # Recalculate generic BPM for display purposes only, not for timing
+        self.cfg.bpm = int(round(30.0 / sleep_time)) if sleep_time > 0 else 120
         
         # Protecció: Assegurar que edit_position està dins de rang
         if self.cfg.sequencer_edit_position >= self.cfg.sequencer_length:

@@ -78,7 +78,7 @@ iteration_count = 0
 while True:
     try:
         current_time = time.monotonic()
-        
+
         # ===== PRIORITAT MÀXIMA: RTOS (Gate temporal + NoteOff) =====
         rtos.update()
         
