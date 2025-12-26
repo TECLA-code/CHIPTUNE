@@ -49,15 +49,123 @@ try:
     cfg.last_input_sample = cfg.last_note_time
     cfg.next_calibration_frame = cfg.last_note_time
     
-    # Animació inici - LEDs i missatge benvinguda
+    # ========================================================================
+    # PROVA INICIAL DE LEDS - Verificar funcionament
+    # ========================================================================
+    print("🔦 Prova LEDs: Encenent tots els LEDs...")
+    hw.all_leds_on()
+    time.sleep(1.0)  # 1 segon amb tots encesos
+    hw.all_leds_off()
+    time.sleep(0.3)
+    print("✅ Prova LEDs completada")
+    
+    # ========================================================================
+    # ANIMACIÓ ÈPICA D'INICI - 3 SEGONS
+    # ========================================================================
     hw.led_startup_animation()
-    hw.display.fill(0)
-    hw.display.text("Tecla x Kidmos", 15, 8, 1)
-    hw.display.text("CHIPTUNE", 35, 20, 1)
-    hw.display.text("Benvingut!", 28, 35, 1)
-    hw.display.text("Sistema llest", 20, 50, 1)
-    hw.display.show()
-    time.sleep(1.5)
+    
+    # FASE 1: EXPLOSIÓ DE PARTÍCULES (1s)
+    for frame in range(12):
+        hw.display.fill(0)
+        progress = frame / 12.0
+        
+        # Partícules que surten del centre
+        import random
+        for _ in range(int(progress * 40)):
+            angle = random.uniform(0, 6.28)  # 2π
+            import math
+            distance = progress * 60
+            px = int(64 + distance * math.cos(angle))
+            py = int(32 + distance * math.sin(angle))
+            if 0 <= px < 128 and 0 <= py < 64:
+                hw.display.pixel(px, py, 1)
+                # Esteles de moviment
+                px2 = int(64 + distance * 0.7 * math.cos(angle))
+                py2 = int(32 + distance * 0.7 * math.sin(angle))
+                if 0 <= px2 < 128 and 0 <= py2 < 64:
+                    hw.display.pixel(px2, py2, 1)
+        
+        # Text "TECLA" apareix gradualment
+        if progress > 0.5:
+            alpha = (progress - 0.5) / 0.5
+            if alpha > 0.2:
+                hw.display.text("TECLA", 49, 28, 1)
+        
+        hw.display.show()
+        time.sleep(0.08)  # 12×0.08 = 0.96s
+    
+    # FASE 2: RAIG ELÈCTRIC (0.6s)
+    for frame in range(6):
+        hw.display.fill(0)
+        
+        # Raigs que creuen tota la pantalla
+        import random
+        for r in range(3):
+            x, y = 64, random.randint(5, 25)
+            for i in range(8):
+                dx = random.randint(-8, 8)
+                dy = random.randint(4, 8)
+                hw.display.line(x, y, x + dx, y + dy, 1)
+                x, y = x + dx, y + dy
+                if y > 60:
+                    break
+        
+        # Flash en frames parells
+        if frame % 2 == 0:
+            hw.display.text("TECLA", 49, 28, 1)
+            # Cercle d'impacte
+            hw.display.circle(64, 32, 15 + frame * 3, 1)
+        
+        hw.display.show()
+        time.sleep(0.1)  # 6×0.1 = 0.6s
+    
+    # FASE 3: ONES EXPANSIVES + "CHIPTUNE" (1s)
+    for frame in range(15):
+        hw.display.fill(0)
+        progress = frame / 15.0
+        
+        # Ones concèntriques que s'expandeixen
+        import math
+        for ring in range(5):
+            radius = int((progress + ring * 0.2) * 40)
+            if radius < 50 and radius > 0:
+                # Cercle amb punts
+                for angle in range(0, 360, 10):
+                    rad = math.radians(angle)
+                    px = int(64 + radius * math.cos(rad))
+                    py = int(32 + radius * math.sin(rad))
+                    if 0 <= px < 128 and 0 <= py < 64:
+                        hw.display.pixel(px, py, 1)
+        
+        # Text "CHIPTUNE" amb efecte d'escaneig
+        if progress > 0.3:
+            hw.display.text("CHIPTUNE", 40, 28, 1)
+            # Línia d'escaneig
+            scan_y = int(20 + progress * 30)
+            hw.display.hline(0, scan_y, 128, 1)
+        
+        hw.display.show()
+        time.sleep(0.067)  # 15×0.067 = 1.0s
+    
+    # FASE 4: FADE OUT AMB ESTRELLES (0.4s)
+    for frame in range(5):
+        hw.display.fill(0)
+        
+        # Estrelles aleatòries
+        import random
+        for _ in range(20):
+            sx = random.randint(0, 127)
+            sy = random.randint(0, 63)
+            hw.display.pixel(sx, sy, 1)
+        
+        # Text final
+        if frame < 3:
+            hw.display.text("CHIPTUNE", 40, 28, 1)
+        
+        hw.display.show()
+        time.sleep(0.08)  # 5×0.08 = 0.4s
+    
+    time.sleep(0.04)  # Pausa final
     
     print("✅ Sistema preparat - Arquitectura Modular Activa")
     print("")
@@ -78,35 +186,45 @@ iteration_count = 0
 while True:
     try:
         current_time = time.monotonic()
-
+        
         # ===== PRIORITAT MÀXIMA: RTOS (Gate temporal + NoteOff) =====
-        rtos.update()
+        rtos.update(current_time)  # Passar current_time (optimització: evita crida redundant)
         
         # ===== PRIORITAT ALTA: Lectura inputs usuari =====
-        x_raw = hw.get_voltage(hw.pote_analog_1)   # CV1 (GP28)
-        y_raw = hw.get_voltage(hw.pote_analog_2)   # CV2 (GP27)
-        z_raw = hw.get_voltage(hw.pote_velocidad)  # Slider (GP26)
+        # Pins:
+        #   Slider (GP28): z - Velocitat/BPM (NO calibrat, sempre 0-3.3V)
+        #   CV1/Pote (GP26): x - Paràmetre 1 (calibrat amb cv1_min/max)
+        #   CV2/LDR (GP27): y - Paràmetre 2 (calibrat amb cv2_min/max)
         
+        z_raw = hw.get_voltage(hw.slider)      # Slider (GP28) - BPM
+        x_raw = hw.get_voltage(hw.cv1_pote)    # CV1 (GP26) - Param 1
+        y_raw = hw.get_voltage(hw.cv2_ldr)     # CV2 (GP27) - Param 2
+        
+        # Aplicar calibració NOMÉS als CV1 i CV2
         x = get_voltage_calibrated(x_raw, cfg.cv1_min, cfg.cv1_max)
         y = get_voltage_calibrated(y_raw, cfg.cv2_min, cfg.cv2_max)
-        z = get_voltage_calibrated(z_raw, cfg.cv2_min, cfg.cv2_max)
+        z = z_raw  # Slider NO calibrat
         
-        cfg.bpm_voltage_raw = x
-        thr_filter = smooth_value(cfg.bpm_voltage_filtered, x, cfg.bpm_voltage_smoothing)
+        # BPM calculations amb z (slider, sempre 0-3.3V)
+        cfg.bpm_voltage_raw = z
+        thr_filter = smooth_value(cfg.bpm_voltage_filtered, z, cfg.bpm_voltage_smoothing)
         cfg.bpm_voltage_filtered = thr_filter
         raw_bpm = voltage_to_bpm(
             thr_filter,
-            pot_min=cfg.cv1_min,
-            pot_max=cfg.cv1_max,
+            pot_min=0.0,  # Slider sempre 0-3.3V
+            pot_max=3.3,
             bpm_min=cfg.bpm_min,
             bpm_max=cfg.bpm_max,
             curve=cfg.bpm_curve,
         )
         sleep_time = clock.update(raw_bpm, current_time)
+        
+        # Guardar voltatges per als modes
         cfg.x, cfg.y, cfg.z = x, y, z
         
-        cx = map_value(hw.potes[1].value, 0, 65535, -1.5, 1.5)
-        cy = map_value(hw.potes[2].value, 0, 65535, -1.5, 1.5)
+        # Coordenades fractals: x i y estan clampats, els modes fan normalize()
+        cx = map_value(x, cfg.cv1_min, cfg.cv1_max, -1.5, 1.5)
+        cy = map_value(y, cfg.cv2_min, cfg.cv2_max, -1.5, 1.5)
         cfg.cx, cfg.cy = cx, cy
         
         # Variables aleatòries per caos
@@ -131,12 +249,12 @@ while True:
             ticks = clock.consume_ticks(current_time)
             for tick_time in ticks:
                 cfg.next_note_time = tick_time + sleep_time
-                mode_loader.execute_mode(cfg.loop_mode, x, y, z, sleep_time, cx, cy)
+                mode_loader.execute_mode(cfg.loop_mode, x, y, sleep_time, cx, cy)
                 if cfg.loop_mode not in [6, 8]:
                     cfg.iteration = (cfg.iteration + 1) % 60000
         
-        # Feedback LED dinàmic per harmonies i duty sense enlluernar
-        hw.update_dynamic_leds(cfg, current_time)
+        # Actualitzar LEDs de configuració (sense animacions dinàmiques)
+        hw.update_config_led_indicators(cfg)
         
         # ===== PRIORITAT BAIXA: Actualització display =====
         if cfg.calibration_mode:
@@ -145,18 +263,10 @@ while True:
                 cfg.next_calibration_frame = current_time + cfg.calibration_frame_interval
                 screen.mostrar_calibracion_cv()
             
-        elif current_time - cfg.last_display_update > 0.1:
+        elif current_time - cfg.last_display_update > 0.15:  # Optimitzat: 150ms (abans 100ms)
             inactive_time = current_time - cfg.last_interaction_time
             
-            if cfg.sequencer_mode_active:
-                if inactive_time > 20.0:
-                    try:
-                        anim.animacion_gameboy_tracker()
-                    except Exception:
-                        anim.animacion_ojo()
-                else:
-                    screen.mostrar_sequencer_tracker()
-            elif cfg.show_full_summary:
+            if cfg.show_full_summary:
                 screen._mostrar_resum_complet()
             elif cfg.caos == 1 and cfg.nota_tocada_ara:
                 screen.mostrar_info_loop_mode()
@@ -165,8 +275,9 @@ while True:
                 cfg.nota_tocada_ara = False
             elif cfg.loop_mode == 0:
                 anim.animacion_ojo()
-            elif cfg.loop_mode > 0 and inactive_time > 5.0:
-                anim.mostrar_idle_con_simbolo(cfg.loop_mode)
+            elif cfg.loop_mode > 0 and inactive_time > 999999:  # DESACTIVAT (abans 5.0s)
+                # Animacions idle desactivades per performance
+                screen.mostrar_info_loop_mode()  # Mostrar info normal
             else:
                 screen.mostrar_info_loop_mode()
             
@@ -216,3 +327,4 @@ while True:
         cfg.error_pause_until = max(cfg.error_pause_until, time.monotonic() + 5.0)
 
 print("🛑 TECLA Professional finalitzat")
+ 

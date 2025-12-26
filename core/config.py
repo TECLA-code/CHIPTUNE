@@ -11,7 +11,7 @@ rio_base = 64
 
 # Estats del sistema
 loop_mode = 0
-configout = 0  # 0=mode, 1=cicle1, 2=cicle2, 3=cicle3, 4=harm_base, 5=harm1, 6=harm2, 7=cv1_range, 8=cv2_range
+configout = 0  # 0=mode, 1=duty1, 2=duty2, 3=duty3, 4=harm_base, 5=harm1, 6=harm2
 last_interaction_time = 0.0
 
 # Control de polsació llarga botons
@@ -66,9 +66,9 @@ bpm_raw = 120  # BPM sense filtratge
 filtered_bpm = None  # BPM suavitzat
 bpm = 120  # BPM actual (arrodonit)
 filtered_sleep_time = 0.25
-bpm_smoothing = 0.35  # Coeficient de suavitzat exponencial 0-1
+bpm_smoothing = 0.4  # Més reactiu (abans 0.1 era massa lent)
 bpm_voltage_filtered = None
-bpm_voltage_smoothing = 0.2
+bpm_voltage_smoothing = 0.5  # Transicions més ràpides del slider (abans 0.15)
 bpm_min = 20
 bpm_max = 220
 bpm_curve = 1.0
@@ -141,31 +141,27 @@ state_euclid = {
     'accent_level': -1,
 }
 
-# Mode 9: Tracker programable - Configuració
-# Notes i gates (solo OFF=0, ON=50)
-sequencer_octave = 3            # Octava base per seleccionar notes (0-8)
-sequencer_octave_base_note = 48  # Nota base corresponent a l’octava inicial (C4)
-sequencer_pattern = [sequencer_octave_base_note] * 32  # Array de notes MIDI (0-127)
-sequencer_gate = [0] * 32      # Array de gates (0=OFF, 50=ON)
-sequencer_length = 16          # Longitud actual del patró (8-32)
-sequencer_note_pot = 1         # Potenciómetro activo para notas (1=CV1, 2=CV2)
+# Estat específic per al mode Espiral
+state_espiral = {
+    'initialized': False,
+    'transposicio': 0,
+    'cicle_counter': 0,
+}
 
-# Estat de reproducció
-sequencer_play_position = 0    # Posició de reproducció actual
-sequencer_edit_position = 0    # Posició d'edició actual
-sequencer_mode_active = False  # Si estem al tracker (bloqueig de mode)
-sequencer_page = 0             # Pàgina actual (0=edició, 1=longitud, 2=info)
-sequencer_browse_mode = False  # Mode navegació segura (no edita)
-sequencer_browse_hold_triggered = False  # Prevenció de múltiples toggles
-sequencer_gate_pending = False  # Si s'ha de togglejar gate en deixar el botó
+# Estat específic per al mode Contrapunt
+state_contrapunt = {
+    'initialized': False,
+    'beat_counter': 0,
+    'degree': 0,
+}
 
-# Estat d'edició de notes
-sequencer_note_edit_mode = False  # Si estem editant una nota
-sequencer_pending_note = sequencer_octave_base_note  # Nota temporal en edició
+# Estat específic per al mode Narval
+state_narval = {
+    'initialized': False,
+    'grau_escala': 0,         # Posició actual a l'escala pentatònica
+    'nota_base': 60,          # Nota MIDI base (Do central)
+}
 
-# Constants per a valors de gate (solo OFF y ON)
-SEQUENCER_GATE_OFF = 0    # Nota apagada
-SEQUENCER_GATE_ON = 50   # Nota encendida
 
 # Rangs i escales per conversió de voltatge
 pot_min, pot_max = 0.0, 3.3
@@ -185,7 +181,7 @@ note_off_schedule = {}  # Mapa nota->temps_off per NoteOff programats
 # Duracions segures per a NoteOff (clamp per mantenir consistència)
 NOTE_OFF_MIN_DURATION = 0.02
 NOTE_OFF_MAX_DURATION = 1.0
-NOTE_OFF_DEFAULT_RATIO = 0.9  # Percentatge del gate per mantenir nota sostinguda
+NOTE_OFF_DEFAULT_RATIO = 0.7  # 70% del gate (abans 90%)
 
 # Gate percentatges per cada loop mode (% del període entre notes)
 # Això assegura que el gate és proporcional al BPM
@@ -199,31 +195,26 @@ GATE_PERCENTAGES = {
     6: 0.12,   # Escala - 12% (precís)
     7: 0.10,   # Euclidia - 10% (rítmic)
     8: 0.14,   # Cosmos - 14% (espacial)
-    9: 0.15,   # Sequencer - 15% (controlat)
 }
 
 # Límits de gate per seguretat (en segons)
 GATE_MIN_DURATION = 0.005  # 5ms mínim (sempre perceptible)
 GATE_MAX_DURATION = 0.200  # 200ms màxim (evita gates eternament llargs a BPM baixos)
 
-def get_gate_duration_for_mode(mode, period):
+def get_gate_duration_for_mode(mode, gate_ms):
     """
-    Retorna la duració del gate proporcional al període entre notes
+    Retorna la duració del gate en segons.
     
     Args:
-        mode: Mode musical actiu (0-8)
-        period: Període entre notes en segons (sleep_time)
+        mode: Mode musical actiu (0-8) [no utilitzat, mantingut per compatibilitat]
+        gate_ms: Duració del gate en mil·lisegons (ja calculada pels modes)
     
     Returns:
-        Duració del gate en segons, limitada entre GATE_MIN i GATE_MAX
+        Duració del gate en segons, limitada entre 10ms i 2000ms per seguretat
     """
-    percentage = GATE_PERCENTAGES.get(mode, 0.10)
-    gate_duration = period * percentage
-    
-    # Limitar entre mínim i màxim per seguretat
-    gate_duration = max(GATE_MIN_DURATION, min(GATE_MAX_DURATION, gate_duration))
-    
-    return gate_duration
+    # Convertir ms a segons amb límits de seguretat
+    gate_seconds = gate_ms / 1000.0
+    return max(0.01, min(2.0, gate_seconds))  # Mínim 10ms, màxim 2s
 
 # Estadística i gestió d'errors
 last_midi_error = None

@@ -61,12 +61,17 @@ class TeclaHardware:
         return btn
     
     def _setup_pots(self):
-        """Configurar potenciòmetres"""
-        self.pote_velocidad = analogio.AnalogIn(board.GP26)  # Slider/BPM
-        self.pote_analog_2 = analogio.AnalogIn(board.GP27)   # CV2/LDR
-        self.pote_analog_1 = analogio.AnalogIn(board.GP28)   # CV1/Potenciòmetre modes
+        """Configurar potenciòmetres amb mapatge correcte"""
+        self.slider = analogio.AnalogIn(board.GP28)      # Slider: GP28 (velocitat/BPM)
+        self.cv1_pote = analogio.AnalogIn(board.GP26)    # CV1 Pote: GP26 (paràmetre 1, calibrable)
+        self.cv2_ldr = analogio.AnalogIn(board.GP27)     # CV2 LDR: GP27 (paràmetre 2, calibrable)
         
-        self.potes = [self.pote_analog_1, self.pote_analog_2, self.pote_velocidad]
+        # Noms legacy per compatibilitat (DEPRECATED - usar slider, cv1_pote, cv2_ldr)
+        self.pote_velocidad = self.slider
+        self.pote_analog_1 = self.cv1_pote  
+        self.pote_analog_2 = self.cv2_ldr
+        
+        self.potes = [self.cv1_pote, self.cv2_ldr, self.slider]
     
     def _setup_leds(self):
         """Configurar LEDs indicadors"""
@@ -102,9 +107,15 @@ class TeclaHardware:
     
     def update_config_led_indicators(self, cfg):
         """
-        Sistema NOU: 1 LED per cada opció de configuració
-        LED actiu = paràmetre seleccionat (cfg.configout)
-        LED2 EXCLUSIU per Gate/BPM - NO s'usa per configs
+        Sistema de LEDs de configuració:
+        - LED2 (GP6) EXCLUSIU per Gate - NO s'usa per configs
+        - configout=0 (Mode): Cap LED encès
+        - configout=1 (Duty1): LED3 encès
+        - configout=2 (Duty2): LED4 encès
+        - configout=3 (Duty3): LED5 encès
+        - configout=4 (H1): LED6 encès
+        - configout=5 (H2): LED7 encès
+        - configout=6 (H3): LED1 encès
         """
         # Apagar tots primer (excepte LED2 si gate actiu)
         for i, led in enumerate(self.leds):
@@ -112,105 +123,33 @@ class TeclaHardware:
                 led.value = False
         
         # Encendre el LED corresponent al configout actual
-        if cfg.configout == 0:  # Loop Mode
-            self.led_1.value = True
+        if cfg.configout == 0:  # Mode - Cap LED
+            pass  # Tots apagats
         elif cfg.configout == 1:  # Duty1
             self.led_3.value = True
         elif cfg.configout == 2:  # Duty2
             self.led_4.value = True
         elif cfg.configout == 3:  # Duty3
             self.led_5.value = True
-        elif cfg.configout == 4:  # Harmònic base (PWM1)
+        elif cfg.configout == 4:  # Harmònic 1
             self.led_6.value = True
-        elif cfg.configout == 5:  # Harmònic PWM2
+        elif cfg.configout == 5:  # Harmònic 2
             self.led_7.value = True
-        elif cfg.configout == 6:  # Harmònic PWM3
-            self.led_6.value = True
-            self.led_7.value = True
+        elif cfg.configout == 6:  # Harmònic 3
+            self.led_1.value = True
         
         # LED2 SEMPRE controlat exclusivament pel gate (no es toca aquí)
         # El gate s'actualitza automàticament via RTOS i midi_handler
     
     def update_dynamic_leds(self, cfg, current_time):
-        """Feedback suau per canvis de duty i harmònics sense enlluernar."""
-        # Actualitzar fase del pols segons velocitat del sistema
-        elapsed = current_time - cfg.last_led_animation_time
-        cfg.last_led_animation_time = current_time
-        cfg.led_pulse_phase = (cfg.led_pulse_phase + elapsed * 2.0) % 2.0  # cicle ~0.5s
-        pulse_on = cfg.led_pulse_phase < 0.2  # flash curt
-
-        # Duty (LED5) si qualsevol duty != 50
-        duty_changed = (cfg.duty1, cfg.duty2, cfg.duty3) != cfg.led_last_state['duty']
-        if duty_changed:
-            cfg.led_last_state['duty'] = (cfg.duty1, cfg.duty2, cfg.duty3)
-            cfg.led_pulse_counter = 3
-        if cfg.led_pulse_counter > 0 and (cfg.duty1, cfg.duty2, cfg.duty3) != (50, 50, 50):
-            self.led_5.value = pulse_on
-            if pulse_on and cfg.led_pulse_phase >= 0.2:
-                cfg.led_pulse_counter -= 1
-        else:
-            self.led_5.value = False
-
-        # Harmònics (LED1 i LED4) indicats amb pols alternatiu
-        harm_tuple = (cfg.freqharm1, cfg.freqharm2)
-        harm_changed = harm_tuple != cfg.led_last_state['harmonics']
-        if harm_changed:
-            cfg.led_last_state['harmonics'] = harm_tuple
-            cfg.led_harm_counter = 3
-        active_harm = harm_tuple[0] != 0 or harm_tuple[1] != 0
-        if getattr(cfg, 'led_harm_counter', 0) > 0 and active_harm:
-            self.led_1.value = pulse_on if cfg.freqharm1 != 0 else False
-            self.led_4.value = pulse_on if cfg.freqharm2 != 0 else False
-            if pulse_on and cfg.led_pulse_phase >= 0.2:
-                cfg.led_harm_counter -= 1
-        else:
-            self.led_1.value = False
-            self.led_4.value = False
-
-        # Loop mode pulse (LED6, LED3, LED7) quan hi ha activitat i no es mostra config
-        step_interval = max(0.08, getattr(cfg, 'current_sleep_time', 0.3) / 3.0)
-        show_config = getattr(cfg, 'show_config_mode', False)
-
-        if cfg.loop_mode > 0 and not show_config:
-            if current_time - cfg.last_loop_led_time > step_interval:
-                cfg.last_loop_led_time = current_time
-                cfg.led_mode_step = (cfg.led_mode_step + 1) % 6
-
-            loop_pattern = [
-                (True, False, False),
-                (False, True, False),
-                (False, False, True),
-                (False, True, False),
-                (True, False, False),
-                (False, False, False),
-            ]
-            led6, led3, led7 = loop_pattern[cfg.led_mode_step]
-            self.led_6.value = led6
-            self.led_3.value = led3
-            self.led_7.value = led7
-        elif show_config:
-            menu_patterns = {
-                0: ("pulse", "off", "off"),
-                1: ("solid", "pulse", "off"),
-                2: ("solid", "solid", "pulse"),
-                3: ("off", "pulse", "off"),
-                4: ("off", "solid", "pulse"),
-                5: ("off", "solid", "solid"),
-                6: ("pulse", "off", "solid"),
-            }
-            states = menu_patterns.get(cfg.configout % 7, ("off", "off", "off"))
-            for led, state in zip((self.led_6, self.led_3, self.led_7), states):
-                if state == "solid":
-                    led.value = True
-                elif state == "pulse":
-                    led.value = pulse_on
-                else:
-                    led.value = False
-        else:
-            # Quan no hi ha animació i tampoc es mostra config, mantenir-los apagats
-            self.led_6.value = False
-            self.led_3.value = False
-            self.led_7.value = False
+        """Sistema d'animació de LEDs DESACTIVAT per estabilitat.
+        
+        Només LED2 (gate) està actiu - controlat per rtos.py i midi_handler.py
+        Els altres LEDs es gestionen únicament per update_config_led_indicators()
+        """
+        # Mantenir tots els LEDs apagats excepte els de configuració
+        # Eliminem animacions, pulsos i càlculs complexos per millorar rendiment
+        pass
     
     def led_idle_animation(self, step):
         """
@@ -262,8 +201,28 @@ class TeclaHardware:
     def update_loop_mode_indicators(self, cfg):
         """Actualitza LEDs 6, 3, 7 per mostrar loop_mode en binari"""
         mode = cfg.loop_mode
+        
+        # MODE 0: LEDs ALEATORIS cada 0.5s
+        if mode == 0:
+            import time
+            import random
+            # Seed basat en temps (canvia cada 0.5s)
+            seed = int(time.monotonic() / 0.5)
+            random.seed(seed)
+            
+            # Tirar dau per cada LED (7 LEDs)
+            # LEDs: led_1(GP10), led_2(GP6), led_3(GP8), led_4(GP9), led_5(GP7), led_6(GP11), led_7(GP12)
+            self.led_1.value = (random.randint(0, 1) == 1)
+            self.led_2.value = (random.randint(0, 1) == 1)
+            self.led_3.value = (random.randint(0, 1) == 1)
+            self.led_4.value = (random.randint(0, 1) == 1)
+            self.led_5.value = (random.randint(0, 1) == 1)
+            self.led_6.value = (random.randint(0, 1) == 1)
+            self.led_7.value = (random.randint(0, 1) == 1)
+            return
+        
+        # ALTRES MODES: Patró binari normal
         patterns = {
-            0: (False, False, False),  # Pausa total
             1: (False, False, True),   # Fractal
             2: (False, True, False),   # Riu
             3: (False, True, True),    # Tempesta
@@ -271,14 +230,13 @@ class TeclaHardware:
             5: (True, False, True),    # Bosc
             6: (True, True, False),    # Escala CV
             7: (True, True, True),     # Euclidia
-            8: (False, False, False),  # Cosmos reutilitza patró posterior
-            9: (False, False, True),   # Tracker
+            8: (False, False, False),  # Cosmos (final)
         }
 
         if mode not in patterns:
             mode = 0
 
-        led6, led3, led7 = patterns[mode]
+        led6, led3, led7 = patterns.get(mode, (False, False, False))
         self.led_6.value = led6
         self.led_3.value = led3
         self.led_7.value = led7
@@ -286,8 +244,8 @@ class TeclaHardware:
     def display_configuration_mode(self, cfg):
         """Mostra el valor del paràmetre configurat en LEDs 6, 3, 7"""
         if cfg.configout == 0:
-            # Loop mode (0-8)
-            self._display_value(cfg.loop_mode, 8)
+            # Loop mode (0-14)
+            self._display_value(cfg.loop_mode, 14)
         elif cfg.configout == 1:
             # Duty1 (1-99)
             self._display_value(cfg.duty1, 99)
@@ -298,20 +256,14 @@ class TeclaHardware:
             # Duty3 (1-99)
             self._display_value(cfg.duty3, 99)
         elif cfg.configout == 4:
-            # Harmonic base (0-8)
-            self._display_value(cfg.freqharm_base, 8)
+            # Harmonic base (0-12)
+            self._display_value(cfg.freqharm_base, 12)
         elif cfg.configout == 5:
-            # Harmonic1 (0-8)
-            self._display_value(cfg.freqharm1, 8)
+            # Harmonic1 (0-12)
+            self._display_value(cfg.freqharm1, 12)
         elif cfg.configout == 6:
-            # Harmonic2 (0-8)
-            self._display_value(cfg.freqharm2, 8)
-        elif cfg.configout == 7:
-            # CV1 range (0-4)
-            self._display_value(cfg.cv1_range_config, 4)
-        elif cfg.configout == 8:
-            # CV2 range (0-4)
-            self._display_value(cfg.cv2_range_config, 4)
+            # Harmonic2 (0-12)
+            self._display_value(cfg.freqharm2, 12)
     
     def _display_value(self, value, max_value):
         """Mostra un valor normalitzat en LEDs 6, 3, 7 (binari 0-7)"""

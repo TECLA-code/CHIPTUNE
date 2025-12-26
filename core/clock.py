@@ -6,7 +6,7 @@ from music.converters import bpm_to_sleep_time, smooth_value
 class MasterClock:
     """Clock centralitzat que sincronitza totes les tasques segons BPM."""
 
-    def __init__(self, config, max_catchup_ticks=3):
+    def __init__(self, config, max_catchup_ticks=5):  # Abans 3, ara 5 per millor recuperació
         self.cfg = config
         self.max_catchup_ticks = max_catchup_ticks
         initial_bpm = config.filtered_bpm if config.filtered_bpm else config.bpm
@@ -30,7 +30,7 @@ class MasterClock:
         self.cfg.bpm_raw = raw_bpm
         self.cfg.filtered_bpm = filtered
         self.cfg.current_sleep_time = self.period
-        self.cfg.filtered_sleep_time = self.period
+        # filtered_sleep_time eliminat (redundant)
         self.cfg.bpm = int(round(filtered))
 
         # Evitar que un canvi brusc deixi la següent nota massa llunyana
@@ -61,13 +61,9 @@ class MasterClock:
         return ticks
 
     def idle_sleep(self, current_time):
-        """Repos curt adaptatiu fins al proper tick."""
+        """Sleep adaptatiu més agressiu per màxima responsivitat (optimitzat)."""
         remaining = self.next_tick - current_time
-        if remaining <= 0:
-            return
+        if remaining > 0.002:  # Només sleep si queda >2ms (abans 1ms)
+            # Sleep més agressiu: max 1ms, però proporcional al temps restant
+            time.sleep(min(0.001, remaining * 0.3))  # Abans: 0.05
 
-        loop_sleep = max(
-            self.cfg.loop_sleep_min,
-            min(self.cfg.loop_sleep_max, remaining * self.cfg.loop_sleep_factor)
-        )
-        time.sleep(loop_sleep)

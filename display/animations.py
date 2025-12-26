@@ -21,7 +21,7 @@
 import time
 import random
 import math
-from music.converters import midi_to_note_name
+from music.converters import midi_to_note_name  # Note: No longer used in idle animation
 
 class Animations:
     """Animacions per pantalla OLED"""
@@ -31,18 +31,17 @@ class Animations:
         self.cfg = config
     
     def animacion_ojo(self):
-        """Animación de ojo en modo inactivo - Muestra parámetros modificados (D1, D2, D3, H1, H2)"""
+        """Animación de ojo en modo inactivo con 24 frames - Muestra parámetros modificados"""
         self.hw.display.fill(0)  # Limpiar pantalla
         
         # Valores por defecto
         DUTY_DEFAULT = 50
         HARM_DEFAULT = 0
-        CV_MAX = 3.3  # Valor máximo para CV (3.3V) - Mantenido para posibles usos futuros
         
         # Lista de parámetros modificados
         params = []
         
-        # Verificar parámetros modificados (solo D1, D2, D3, H1, H2)
+        # Verificar parámetros modificados
         if self.cfg.duty1 != DUTY_DEFAULT:
             params.append("D1")
         if self.cfg.duty2 != DUTY_DEFAULT:
@@ -54,44 +53,230 @@ class Animations:
         if self.cfg.freqharm2 != HARM_DEFAULT:
             params.append("H2")
         
-        # Mostrar parámetros modificados en la parte superior (sin CV1 y CV2)
+        # Mostrar parámetros modificados en la parte superior
         if params:
             param_text = " ".join(params)
-            # Asegurarse de que el texto no sea demasiado ancho
-            if len(param_text) > 20:  # Aproximadamente el ancho máximo
+            if len(param_text) > 20:
                 param_text = param_text[:17] + "..."
             self.hw.display.text(param_text, 2, 2, 1)
         
-        # Animación del ojo
-        cx, cy, r = 64, 40, 15  # Ojo más abajo para dejar espacio al texto
+        # ANIMACIÓ ÈPICA: 30 segons en 3 parts
+        # Part 1 (2s): Despertar | Part 2 (25s): Mirar suau | Part 3 (3s): Megaglitch
+        cx, cy, r = 64, 32, 26  # ULL GEGANT
         t = time.monotonic()
-        fase = int((t % 4.0) * 2)
+        fase = int((t * 10) % 300)  # 300 frames, cicle de 30 segons
         
-        # Contorno del ojo
+        # Contorno del ojo GEGANT
         self.hw.display.circle(cx, cy, r, 1)
         
-        # Animación de la pupila
-        if fase in [1, 4]:
-            self.hw.display.hline(cx - r, cy, r * 2, 1)
-        else:
-            if fase in [0, 7]:
-                pupila_x, pupila_y = cx, cy
-            elif fase in [2, 3]:
-                pupila_x, pupila_y = cx - 8, cy
-            else:
-                pupila_x, pupila_y = cx + 8, cy
-            self.hw.display.circle(pupila_x, pupila_y, 5, 1)
+        # Funció helper per omplir cercle manualment
+        def dibuixar_pupila(px, py, radi):
+            for dy in range(-radi, radi + 1):
+                for dx in range(-radi, radi + 1):
+                    if dx*dx + dy*dy <= radi*radi:
+                        if 0 <= px + dx < 128 and 0 <= py + dy < 64:
+                            self.hw.display.pixel(px + dx, py + dy, 1)
         
-        # Indicador del modo config activo (si es necesario)
+        # Funció helper per afegir iris (anells al voltant de la pupil·la)
+        def dibuixar_iris(px, py):
+            # Anells de l'iris
+            for radius in [8, 12, 16, 20]:  # Iris més gran (abans 10,14,18)
+                for angle in range(0, 360, 12):
+                    import math
+                    rad = math.radians(angle)
+                    ix = int(px + radius * math.cos(rad))
+                    iy = int(py + radius * math.sin(rad))
+                    if 0 <= ix < 128 and 0 <= iy < 64:
+                        self.hw.display.pixel(ix, iy, 1)
+        
+        # Funció helper per afegir reflex (punt blanc)
+        def dibuixar_reflex(px, py):
+            for dx in [-2, -1, 0]:
+                for dy in [-2, -1]:
+                    if 0 <= px + dx < 128 and 0 <= py + dy < 64:
+                        self.hw.display.pixel(px + dx, py + dy, 0)
+        
+        # === PART 1: DESPERTAR (0-19) - 2 segons ===
+        if fase >= 0 and fase < 20:
+            # Creixement gradual de la pupil·la
+            pupila_size = min(5, fase // 3)  # Creix fins a 5
+            dibuixar_pupila(cx, cy, pupila_size)
+            if fase > 10:
+                dibuixar_reflex(cx - 1, cy - 1)
+        
+        # === PART 2: MIRAR AL VOLTANT (20-269) - 25 segons SUAU ===
+        elif fase >= 20 and fase < 270:
+            import math
+            # Moviment suau amb funcions sin/cos
+            frame_rel = fase - 20  # 0-249
+            
+            # Patró de moviment suau amb diverses fases
+            angle_slow = (frame_rel / 250.0) * 360 * 3  # 3 voltes completes en 25s
+            angle_fast = (frame_rel / 250.0) * 360 * 8  # 8 voltes ràpides
+            
+            # Combinar moviments per varietat
+            offset_x = int(10 * math.sin(math.radians(angle_slow)) + 
+                          3 * math.cos(math.radians(angle_fast)))
+            offset_y = int(8 * math.cos(math.radians(angle_slow * 0.7)) + 
+                          2 * math.sin(math.radians(angle_fast * 1.3)))
+            
+            # Parpelles ocasionals (cada ~4 segons)
+            if frame_rel % 40 == 38 or frame_rel % 40 == 39:
+                # Parpella
+                self.hw.display.hline(cx - r, cy, r * 2, 1)
+                if frame_rel % 40 == 39:
+                    self.hw.display.hline(cx - r, cy - 1, r * 2, 1)
+                    self.hw.display.hline(cx - r, cy + 1, r * 2, 1)
+            else:
+                # Dibuixar ull normal amb moviment suau (sense iris)
+                dibuixar_pupila(cx + offset_x, cy + offset_y, 5)  # Pupil·la més gran (abans 3)
+                dibuixar_reflex(cx + offset_x - 2, cy + offset_y - 2)
+        
+        # === PART 3: MEGAGLITCH (270-299) - 3 segons ===
+        elif fase >= 270:
+            frame_glitch = fase - 270  # 0-29
+            
+            if frame_glitch == 0:
+                # Pupil·la normal abans del caos
+                dibuixar_pupila(cx, cy, 5)
+                dibuixar_reflex(cx - 2, cy - 2)
+            
+            elif frame_glitch == 1:
+                # Comença distorsió
+                dibuixar_pupila(cx - 2, cy, 5)
+                dibuixar_pupila(cx + 2, cy, 5)
+            
+            elif frame_glitch == 2:
+                # DUES PUPIL·LES
+                dibuixar_pupila(cx - 8, cy, 6)
+                dibuixar_pupila(cx + 8, cy, 6)
+            
+            elif frame_glitch == 3:
+                # TRES PUPIL·LES
+                dibuixar_pupila(cx, cy - 12, 4)
+                dibuixar_pupila(cx, cy, 6)
+                dibuixar_pupila(cx, cy + 12, 4)
+            
+            elif frame_glitch == 4:
+                # QUATRE PUPIL·LES
+                dibuixar_pupila(cx - 10, cy - 10, 5)
+                dibuixar_pupila(cx + 10, cy - 10, 5)
+                dibuixar_pupila(cx - 10, cy + 10, 5)
+                dibuixar_pupila(cx + 10, cy + 10, 5)
+            
+            elif frame_glitch == 5:
+                # SIS PUPIL·LES (cercle)
+                import math
+                for i in range(6):
+                    angle = i * 60
+                    rad = math.radians(angle)
+                    px = int(cx + 12 * math.cos(rad))
+                    py = int(cy + 12 * math.sin(rad))
+                    dibuixar_pupila(px, py, 4)
+            
+            elif frame_glitch == 6:
+                # Cercles caòtics
+                dibuixar_pupila(cx, cy, 10)
+                self.hw.display.circle(cx, cy, 6, 1)
+                self.hw.display.circle(cx, cy, 14, 1)
+                self.hw.display.circle(cx, cy, 18, 1)
+                self.hw.display.circle(cx, cy, 22, 1)
+            
+            elif frame_glitch == 7:
+                # Espiral
+                import math
+                for i in range(0, 360, 20):
+                    rad = math.radians(i)
+                    r_spiral = 3 + i / 30.0
+                    px = int(cx + r_spiral * math.cos(rad))
+                    py = int(cy + r_spiral * math.sin(rad))
+                    if 0 <= px < 128 and 0 <= py < 64:
+                        dibuixar_pupila(px, py, 2)
+            
+            elif frame_glitch == 8:
+                # Inversió 25%
+                dibuixar_pupila(cx, cy, 9)
+                for x in range(0, 128, 4):
+                    for y in range(0, 64, 4):
+                        self.hw.display.pixel(x, y, 0)
+            
+            elif frame_glitch == 9:
+                # Inversió 50%
+                dibuixar_pupila(cx, cy, 10)
+                for x in range(0, 128, 2):
+                    for y in range(0, 64, 2):
+                        if (x + y) % 4 == 0:
+                            self.hw.display.pixel(x, y, 0)
+            
+            elif frame_glitch == 10:
+                # Inversió 75%
+                for x in range(0, 128, 2):
+                    for y in range(0, 64, 2):
+                        self.hw.display.pixel(x, y, 0)
+                dibuixar_pupila(cx - 12, cy, 5)
+                dibuixar_pupila(cx + 12, cy, 5)
+            
+            elif frame_glitch >= 11 and frame_glitch <= 15:
+                # INVERSIÓ COMPLETA (5 frames)
+                self.hw.display.fill(1)  # Tot blanc
+                self.hw.display.circle(cx, cy, r, 0)  # Ull negre
+                # Pupil·la blanca (píxels negres = 0)
+                for dy in range(-6, 7):
+                    for dx in range(-6, 7):
+                        if dx*dx + dy*dy <= 36:
+                            if 0 <= cx + dx < 128 and 0 <= cy + dy < 64:
+                                self.hw.display.pixel(cx + dx, cy + dy, 0)
+            
+            elif frame_glitch == 16:
+                # Tornada amb glitch
+                dibuixar_pupila(cx, cy, 8)
+                # Línies verticals glitch
+                for i in range(0, 128, 6):
+                    self.hw.display.vline(i, 0, 64, 1)
+            
+            elif frame_glitch == 17:
+                # Glitch horitzontal
+                dibuixar_pupila(cx, cy, 7)
+                for i in range(0, 64, 4):
+                    self.hw.display.hline(0, i, 128, 1)
+            
+            elif frame_glitch == 18:
+                # Pupil·les tremoloses
+                dibuixar_pupila(cx - 3, cy - 2, 5)
+                dibuixar_pupila(cx + 1, cy + 1, 6)
+            
+            elif frame_glitch == 19:
+                # Més pupil·les caòtiques
+                for i in range(8):
+                    import math
+                    angle = i * 45 + (frame_glitch * 10)
+                    rad = math.radians(angle)
+                    px = int(cx + 10 * math.cos(rad))
+                    py = int(cy + 10 * math.sin(rad))
+                    dibuixar_pupila(px, py, 3)
+            
+            elif frame_glitch >= 20 and frame_glitch <= 24:
+                # Reset gradual (5 frames)
+                size = 9 - (frame_glitch - 20)
+                dibuixar_pupila(cx, cy, size)
+                if frame_glitch > 22:
+                    dibuixar_reflex(cx - 2, cy - 2)
+            
+            else:
+                # Final suau (25-29)
+                dibuixar_pupila(cx, cy, 5)
+                dibuixar_reflex(cx - 2, cy - 2)
+        
+        # Indicador del modo config activo
         if hasattr(self.cfg, 'configout') and self.cfg.configout is not None:
-            config_names = ["Mode", "Dty1", "Dty2", "Dty3", "H1", "H2", "CV1", "CV2"]
-            if 0 <= self.cfg.configout < len(config_names):
+            config_names = ["Mode", "Dty1", "Dty2", "Dty3", "H1", "H2", "H3"]
+            if 0 < self.cfg.configout < len(config_names):
                 config_text = config_names[self.cfg.configout]
                 text_width = len(config_text) * 6
                 self.hw.display.text(config_text, (128 - text_width) // 2, 56, 1)
         
         self.hw.display.show()
-        time.sleep(0.1)
+        time.sleep(0.1)  # Manté 100ms per frame (sortida ràpida possible)
     
     def dibujar_rayo_simple(self):
         """Raig espectacular a PANTALLA COMPLETA - només quan nota toca"""
@@ -139,18 +324,15 @@ class Animations:
             self.hw.display.vline(flash_x, 63 - flash_size, flash_size, 1)
     
     def mostrar_idle_con_simbolo(self, loop_mode):
-        """Pantalla idle amb símbol del mode + barres CV"""
+        """Pantalla idle amb símbol del mode + barres CV (ultra-optimitzat)"""
         from music.converters import get_voltage_calibrated, get_voltage_percentage
         
+        # SEMPRE redraw complet per fluides (sense cache que complica)
         self.hw.display.fill(0)
         
-        # Llegir voltatges reals
-        cv1_val_raw = self.hw.get_voltage(self.hw.pote_velocidad)
-        cv2_val_raw = self.hw.get_voltage(self.hw.pote_analog_2)
-        
-        # Aplicar CV range (clamping)
-        cv1_val = get_voltage_calibrated(cv1_val_raw, self.cfg.cv1_min, self.cfg.cv1_max)
-        cv2_val = get_voltage_calibrated(cv2_val_raw, self.cfg.cv2_min, self.cfg.cv2_max)
+        # Usar valors BUFFERED de cfg (NO llegir ADCs!)
+        cv1_val_raw = self.cfg.x  # Valor clamped de CV1
+        cv2_val_raw = self.cfg.y  # Valor clamped de CV2
         
         # Calcular percentatges dins el rang CV configurat
         cv1_pct = get_voltage_percentage(cv1_val_raw, self.cfg.cv1_min, self.cfg.cv1_max)
@@ -175,23 +357,8 @@ class Animations:
         # Símbol central segons loop mode
         self._dibujar_simbolo_mode(loop_mode)
         
-        # Nom mode i nota actual abaix
-        mode_names = {
-            1: "Fractal", 2: "Riu", 3: "Tempesta", 4: "Harmonia",
-            5: "Bosc", 6: "Escala", 7: "Euclidia", 8: "Cosmos", 9: "Sequencer"
-        }
-        mode_name = mode_names.get(loop_mode, "---")
-        note_name = midi_to_note_name(self.cfg.nota_actual)
-        
-        # Mode nom centrat
-        text_w = len(mode_name) * 6
-        self.hw.display.text(mode_name, (128 - text_w) // 2, 50, 1)
-        
-        # Nota actual centrada abaix
-        note_w = len(note_name) * 6
-        self.hw.display.text(note_name, (128 - note_w) // 2, 58, 1)
-        
         self.hw.display.show()
+
     
     def _dibujar_simbolo_mode(self, mode):
         """Dibuixa símbol representatiu per cada mode"""
@@ -214,8 +381,6 @@ class Animations:
             self.hw.display.line(cx - 3, cy - 5, cx + 5, cy - 5, 1)
             self.hw.display.line(cx + 5, cy - 5, cx, cy + 5, 1)
             self.hw.display.line(cx, cy + 5, cx + 3, cy, 1)
-            self.hw.display.line(cx + 3, cy, cx - 5, cy, 1)
-            self.hw.display.line(cx - 5, cy, cx, cy + 15, 1)
             
         elif mode == 4:  # Harmonia - Notes musicals
             # Rodona nota
@@ -224,6 +389,43 @@ class Animations:
             # Segona nota
             self.hw.display.circle(cx + 6, cy + 3, 3, 1)
             self.hw.display.vline(cx + 9, cy - 8, 11, 1)
+            
+        elif mode == 8:  # Cosmos
+            # Estrella cosmic (8 puntes)
+            self.hw.display.text("  *  ", 52, 22, 1)
+            self.hw.display.text(" *** ", 52, 28, 1)
+            self.hw.display.text("*****", 51, 34, 1)
+            self.hw.display.text(" *** ", 52, 40, 1)
+            self.hw.display.text("  *  ", 52, 46, 1)
+            
+        elif mode == 9:  # Campanetes
+            # Campana amb badall que oscil·la
+            fase = (self.cfg.iteration % 6) // 2  # 0, 1, 2
+            # Campana superior
+            self.hw.display.text("  ^  ", 52, 18, 1)
+            self.hw.display.text(" / \\ ", 51, 24, 1)
+            self.hw.display.text("/   \\", 50, 30, 1)
+            self.hw.display.text("|   |", 51, 36, 1)
+            # Badall (oscil·la)
+            if fase == 0:
+                self.hw.display.text(" o  ", 54, 42, 1)  # Esquerra
+            elif fase == 1:
+                self.hw.display.text("  o ", 55, 42, 1)  # Centre
+            else:
+                self.hw.display.text("   o", 56, 42, 1)  # Dreta
+            
+        elif mode == 10:  # Segones
+            # Dues notes amb fletxa (moviment per tons)
+            # Primera nota
+            self.hw.display.circle(cx - 12, cy, 4, 1)
+            self.hw.display.vline(cx - 8, cy - 12, 12, 1)
+            # Fletxa horitzontal
+            self.hw.display.hline(cx - 6, cy, 12, 1)
+            self.hw.display.pixel(cx + 6, cy - 1, 1)  # Punta esquerra
+            self.hw.display.pixel(cx + 6, cy + 1, 1)  # Punta dreta
+            # Segona nota
+            self.hw.display.circle(cx + 12, cy, 4, 1)
+            self.hw.display.vline(cx + 16, cy - 12, 12, 1)
             
         elif mode == 5:  # Bosque - Arbre
             self.hw.display.line(cx, cy + 10, cx, cy - 10, 1)  # Tronc
@@ -256,70 +458,103 @@ class Animations:
                 px = int(cx + r * math.cos(rad))
                 py = int(cy + r * math.sin(rad))
                 self.hw.display.pixel(px, py, 1)
+        
+        elif mode == 11:  # Espiral - Espiral ascendent amb transposició
+            # Espiral que va pujant (representa transposició gradual)
+            t = time.monotonic() * 2  # Animació lenta
+            num_loops = 3  # Tres voltes de l'espiral
+            for i in range(0, 360 * num_loops, 12):
+                # Radi que creix amb cada volta (espiral)
+                rad_angle = math.radians(i + t * 30)
+                radius = 3 + (i / 100.0)  # Espiral cap enfora
+                # Y que puja gradualment (transposició)
+                y_offset = -(i / 80.0)  # Puja cap amunt
+                
+                px = int(cx + radius * math.cos(rad_angle))
+                py = int(cy + y_offset + radius * math.sin(rad_angle))
+                
+                # Només dibuixar si està dins la pantalla
+                if 0 <= px < 128 and 0 <= py < 64:
+                    self.hw.display.pixel(px, py, 1)
             
-        elif mode == 9:  # Sequencer - Graella de steps
-            # Dibuixar 8 quadrats (representant steps del sequencer)
-            step_width = 4
-            step_spacing = 6
-            start_x = cx - 18
+            # Fletxa cap amunt (indica transposició ascendent)
+            self.hw.display.vline(cx, cy - 16, 8, 1)
+            self.hw.display.pixel(cx - 1, cy - 15, 1)  # Punta esquerra
+            self.hw.display.pixel(cx + 1, cy - 15, 1)  # Punta dreta
+            self.hw.display.pixel(cx - 2, cy - 14, 1)
+            self.hw.display.pixel(cx + 2, cy - 14, 1)
+        
+        elif mode == 12:  # Contrapunt - Dues veus independents
+            # Veu principal (línia contínua ondulada)
+            for x in range(-20, 21, 3):
+                y1 = int(3 * math.sin(x * 0.3))
+                y2 = int(3 * math.sin((x + 3) * 0.3))
+                self.hw.display.line(cx + x, cy - 8 + y1, cx + x + 3, cy - 8 + y2, 1)
             
-            for i in range(8):
-                x = start_x + i * step_spacing
-                # Marcar step actual amb quadrat ple
-                if i == self.cfg.sequencer_edit_position % 8:
-                    self.hw.display.fill_rect(x, cy - 2, step_width, 4, 1)
-    def animacion_gameboy_tracker(self):
-        """Animación de consola Game Boy fija con pupila del ojo en la pantalla (combinación creativa)"""
-        self.hw.display.fill(0)
+            # Veu secundària (punts espaiats - representa densitat variable)
+            fase = (self.cfg.iteration % 8) // 2  # 0, 1, 2, 3
+            spacing = [0, 10, 20, 30]  # Posicions de les notes del contrapunt
+            for i, pos in enumerate(spacing):
+                # Només dibuixar alguns punts segons fase (representa timing independent)
+                if i <= fase or (self.cfg.iteration % 4 == 0):
+                    x_pos = cx - 18 + pos
+                    y_offset = int(4 * math.cos((pos * 0.2) + time.monotonic()))
+                    # Nota del contrapunt (cercle petit)
+                    self.hw.display.circle(x_pos, cy + 8 + y_offset, 2, 1)
+            
+            # Línia separadora (mostra independència de les veus)
+            self.hw.display.hline(cx - 20, cy, 40, 1)
         
-        # Posición fija centrada (sin oscilación)
-        base_x = 40  # Centrado en 128 píxeles
-        base_y = 10  # Posición vertical fija
+        elif mode == 13:  # Narval - 3 narvals nadant en formació
+            # Tres narvals (triangles) que es persegueixen
+            # Animació de moviment
+            t = time.monotonic() * 3
+            offset = int(3 * math.sin(t))
+            
+            # Narval 1 (PWM1) - Dalt esquerra
+            x1, y1 = cx - 15, cy - 8 + offset
+            self.hw.display.line(x1, y1, x1 + 6, y1 + 4, 1)  # Cos
+            self.hw.display.line(x1 + 6, y1 + 4, x1, y1 + 8, 1)
+            self.hw.display.line(x1, y1, x1, y1 + 8, 1)
+            self.hw.display.pixel(x1 - 2, y1 + 2, 1)  # Dent (narval característica)
+            
+            # Narval 2 (PWM2) - Centre dreta
+            x2, y2 = cx + 10, cy - offset
+            self.hw.display.line(x2, y2, x2 + 6, y2 + 4, 1)
+            self.hw.display.line(x2 + 6, y2 + 4, x2, y2 + 8, 1)
+            self.hw.display.line(x2, y2, x2, y2 + 8, 1)
+            self.hw.display.pixel(x2 - 2, y2 + 2, 1)
+            
+            # Narval 3 (PWM3) - Part baixa
+            x3, y3 = cx - 5, cy + 10 + offset // 2
+            self.hw.display.line(x3, y3, x3 + 6, y3 + 4, 1)
+            self.hw.display.line(x3 + 6, y3 + 4, x3, y3 + 8, 1)
+            self.hw.display.line(x3, y3, x3, y3 + 8, 1)
+            self.hw.display.pixel(x3 - 2, y3 + 2, 1)
         
-        # Marco de la consola (contorno de GameBoy)
-        self.hw.display.rect(base_x, base_y, 48, 64-10, 1)  # Cuerpo rectangular
-        
-        # Pantalla de la GameBoy
-        screen_x = base_x + 6
-        screen_y = base_y + 4
-        screen_width = 36
-        screen_height = 24
-        self.hw.display.rect(screen_x, screen_y, screen_width, screen_height, 1)
-        
-        # Pupila del ojo integrada en la pantalla (combinada con GameBoy)
-        t = time.monotonic()
-        fase = int((t % 4.0) * 2)  # 8 fases de 0.5s
-        
-        # Centro de la pupila en la pantalla
-        pupila_cx = screen_x + screen_width // 2
-        pupila_cy = screen_y + screen_height // 2
-        
-        # Dibujar pupila según fase (adaptada del ojo)
-        if fase == 0 or fase == 7:  # Mirando al frente
-            pupila_x, pupila_y = pupila_cx, pupila_cy
-        elif fase == 1 or fase == 4:  # Parpadeo (línea horizontal)
-            self.hw.display.hline(pupila_cx - screen_width // 4, pupila_cy, screen_width // 2, 1)
-            pupila_x, pupila_y = pupila_cx, pupila_cy
-        elif fase == 2 or fase == 3:  # Mirando a la izquierda
-            pupila_x, pupila_y = pupila_cx - 5, pupila_cy
-        elif fase == 5 or fase == 6:  # Mirando a la derecha
-            pupila_x, pupila_y = pupila_cx + 5, pupila_cy
-        
-        # Dibujar pupila (si no está parpadeando)
-        if fase not in [1, 4]:
-            self.hw.display.circle(pupila_x, pupila_y, 3, 1)
-        
-        # Cruceta (D-pad)
-        cx, cy = base_x + 12, base_y + 36
-        self.hw.display.vline(cx, cy - 3, 7, 1)
-        self.hw.display.hline(cx - 3, cy, 7, 1)
-        
-        # Botones A y B
-        self.hw.display.circle(base_x + 32, base_y + 36, 2, 1)  # Botón A
-        self.hw.display.circle(base_x + 38, base_y + 30, 2, 1)  # Botón B
-        
-        # Start y Select (dos rayitas)
-        self.hw.display.hline(base_x + 18, base_y + 46, 6, 1)
-        self.hw.display.hline(base_x + 28, base_y + 46, 6, 1)
+        elif mode == 14:  # Ciclador - Tres ones PWM amb diferents duty cycles
+            # Animació que mostra 3 ones quadrades amb amplades diferents
+            # representant els 3 duty cycles independents
+            anim_offset = int((time.monotonic() * 8) % 32)
+            
+            # PWM1 (superior) - Controlat per CV1
+            for i in range(32):
+                x = (i - anim_offset) % 32
+                # Ona quadrada amb duty variable
+                y_high = cy - 16 if (x % 8) < 4 else cy - 12
+                self.hw.display.pixel(cx - 16 + x, y_high, 1)
+            
+            # PWM2 (central) - Controlat per CV2
+            for i in range(32):
+                x = (i - anim_offset) % 32
+                y_high = cy - 4 if (x % 8) < 5 else cy
+                self.hw.display.pixel(cx - 16 + x, y_high, 1)
+            
+            # PWM3 (inferior) - Controlat per Slider
+            for i in range(32):
+                x = (i - anim_offset) % 32
+                y_high = cy + 8 if (x % 8) < 3 else cy + 12
+                self.hw.display.pixel(cx - 16 + x, y_high, 1)
         
         self.hw.display.show()
+

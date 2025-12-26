@@ -13,20 +13,20 @@ def procesar_calibracion(hw, cfg):
     
     # Botó 1: Establir CV1 mínim
     if hw.boton_crueta_1.value and current_time - _calibration_debounce[0] > CALIBRATION_DEBOUNCE_TIME:
-        cfg.cv1_min = hw.get_voltage(hw.pote_velocidad)
+        cfg.cv1_min = hw.get_voltage(hw.cv1_pote)  # GP26
         _calibration_debounce[0] = current_time
     
     # Botó 2: Establir CV1 màxim
     if hw.boton_crueta_2.value and current_time - _calibration_debounce[1] > CALIBRATION_DEBOUNCE_TIME:
-        cfg.cv1_max = hw.get_voltage(hw.pote_velocidad)
+        cfg.cv1_max = hw.get_voltage(hw.cv1_pote)  # GP26
         _calibration_debounce[1] = current_time
     
     # Botó 3: Establir CV2 mínim
     if hw.boton_crueta_3.value and current_time - _calibration_debounce[2] > CALIBRATION_DEBOUNCE_TIME:
-        cfg.cv2_min = hw.get_voltage(hw.pote_analog_2)
+        cfg.cv2_min = hw.get_voltage(hw.cv2_ldr)  # GP27
         _calibration_debounce[2] = current_time
     
     # Botó 4: Establir CV2 màxim
     if hw.boton_crueta_4.value and current_time - _calibration_debounce[3] > CALIBRATION_DEBOUNCE_TIME:
-        cfg.cv2_max = hw.get_voltage(hw.pote_analog_2)
+        cfg.cv2_max = hw.get_voltage(hw.cv2_ldr)  # GP27
         _calibration_debounce[3] = current_time

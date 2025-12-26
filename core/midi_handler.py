@@ -45,14 +45,21 @@ class MidiHandler:
             self._stop_note_immediate(note)
             return
         
+        
         # Marcar que s'ha tocat nota (per raig caos)
         self.cfg.nota_tocada_ara = True
         
-        # --- Gate/Trigger temporal (RTOS) - Proporcional al BPM ---
-        # Usar sleep_time actual del potenciòmetre per sincronització perfecta
-        period_real = getattr(self.cfg, 'current_sleep_time', 0.3)  # Default 0.3s si no existeix
-        gate_duration = get_gate_duration_for_mode(self.cfg.loop_mode, period_real)
+        # --- Gate/Trigger temporal (RTOS) ---
+        # IMPORTANT: 'periode' vé en mil·lisegons dels modes (ex: sleep_time * 500)
+        gate_duration = get_gate_duration_for_mode(self.cfg.loop_mode, periode)
         
+        # Apagar gate anterior ABANS d'encendre el nou (evita overlapping)
+        if self.cfg.gate_active:
+            self.hw.out_jack.value = False
+            self.hw.led_2.value = False
+            self.cfg.gate_active = False
+        
+        # Encendre gate nou
         self.hw.out_jack.value = True
         self.hw.led_2.value = True
         self.cfg.gate_active = True
@@ -75,20 +82,107 @@ class MidiHandler:
         
         # --- Armònics i PWM ---
         freq0 = getattr(self.cfg, "freqharm_base", 0)
-        note1 = apply_harmonic_interval(note, freq0)
-        note2 = apply_harmonic_interval(note, freq1)
-        note3 = apply_harmonic_interval(note, freq2)
-
-        base_freq = midi_to_frequency(note1)
-        freq2_val = midi_to_frequency(note2)
-        freq3_val = midi_to_frequency(note3)
         
-        # Aplicar duty cycles individuals (1-99% → 0-65535)
-        duty_cycle1 = duty_percent_to_cycle(self.cfg.duty1)
-        duty_cycle2 = duty_percent_to_cycle(self.cfg.duty2)
-        duty_cycle3 = duty_percent_to_cycle(self.cfg.duty3)
+        # PWM1: Aplicar harmònics o apagar si play=0
+        if play == 0 or note == 0:
+            base_freq = 440  # Freqüència dummy
+            duty_cycle1 = 0  # APAGAR PWM1
+        else:
+            note1 = apply_harmonic_interval(note, freq0)
+            base_freq = midi_to_frequency(note1)
+            duty_cycle1 = duty_percent_to_cycle(self.cfg.duty1)
+        
+        # PWM2: Aplicar harmònics o apagar si play=0
+        if play == 0 or note == 0:
+            freq2_val = 440  # Freqüència dummy
+            duty_cycle2 = 0  # APAGAR PWM2
+        else:
+            note2 = apply_harmonic_interval(note, freq1)
+            freq2_val = midi_to_frequency(note2)
+            duty_cycle2 = duty_percent_to_cycle(self.cfg.duty2)
+        
+        # PWM3: Aplicar harmònics o apagar si play=0
+        if play == 0 or note == 0:
+            freq3_val = 440  # Freqüència dummy
+            duty_cycle3 = 0  # APAGAR PWM3
+        else:
+            note3 = apply_harmonic_interval(note, freq2)
+            freq3_val = midi_to_frequency(note3)
+            duty_cycle3 = duty_percent_to_cycle(self.cfg.duty3)
         
         # Aplicar a PWM
+        self.hw.pwm1.frequency = base_freq
+        self.hw.pwm2.frequency = freq2_val
+        self.hw.pwm3.frequency = freq3_val
+        self.hw.pwm1.duty_cycle = duty_cycle1
+        self.hw.pwm2.duty_cycle = duty_cycle2
+        self.hw.pwm3.duty_cycle = duty_cycle3
+
+    def play_note_full_multi(self, nota_pwm1, nota_pwm2, nota_pwm3, play, octava, periode, duty=0, freq1=0, freq2=0):
+        """Reprodueix 3 notes diferents simultàniament als 3 PWMs"""
+        self.cfg.nota_actual = nota_pwm1
+        current_time = time.monotonic()
+        if play == 0 or (nota_pwm1 == 0 and nota_pwm2 == 0 and nota_pwm3 == 0):
+            self._stop_note_immediate(nota_pwm1)
+            return
+        self.cfg.nota_tocada_ara = True
+        gate_duration = get_gate_duration_for_mode(self.cfg.loop_mode, periode)
+        if self.cfg.gate_active:
+            self.hw.out_jack.value = False
+            self.hw.led_2.value = False
+            self.cfg.gate_active = False
+        self.hw.out_jack.value = True
+        self.hw.led_2.value = True
+        self.cfg.gate_active = True
+        self.cfg.gate_duration = gate_duration
+        self.cfg.gate_off_time = current_time + gate_duration
+        try:
+            self.hw.midi.send(NoteOn(nota_pwm1 if nota_pwm1 > 0 else 60, 100))
+        except Exception as exc:
+            self._handle_midi_error(exc)
+            self._stop_note_immediate(nota_pwm1 if nota_pwm1 > 0 else 60, suppress_midi=True)
+            return
+        self.cfg.playing_notes.add(nota_pwm1 if nota_pwm1 > 0 else 60)
+        note_duration = gate_duration * NOTE_OFF_DEFAULT_RATIO
+        note_duration = max(NOTE_OFF_MIN_DURATION, min(NOTE_OFF_MAX_DURATION, note_duration))
+        self.cfg.note_off_schedule[nota_pwm1 if nota_pwm1 > 0 else 60] = current_time + note_duration
+        
+        # PWM1: Aplicar harmònics o apagar si nota=0
+        if nota_pwm1 > 0:
+            freq0 = getattr(self.cfg, "freqharm_base", 0)
+            note1_final = apply_harmonic_interval(nota_pwm1, freq0)
+            note1_final = max(0, min(127, note1_final))
+            base_freq = midi_to_frequency(note1_final)
+            duty_cycle1 = duty_percent_to_cycle(self.cfg.duty1)
+        else:
+            base_freq = 440  # Freqüència dummy (no s'escoltarà)
+            duty_cycle1 = 0  # APAGAR PWM1
+        
+        # PWM2: Aplicar harmònics o apagar si nota=0
+        if nota_pwm2 > 0:
+            note2_temp = apply_harmonic_interval(nota_pwm2, freq1)
+            note2_temp = max(0, min(127, note2_temp))
+            note2_final = apply_harmonic_interval(note2_temp, self.cfg.freqharm1)
+            note2_final = max(0, min(127, note2_final))
+            freq2_val = midi_to_frequency(note2_final)
+            duty_cycle2 = duty_percent_to_cycle(self.cfg.duty2)
+        else:
+            freq2_val = 440  # Freqüència dummy
+            duty_cycle2 = 0  # APAGAR PWM2
+        
+        # PWM3: Aplicar harmònics o apagar si nota=0
+        if nota_pwm3 > 0:
+            note3_temp = apply_harmonic_interval(nota_pwm3, freq2)
+            note3_temp = max(0, min(127, note3_temp))
+            note3_final = apply_harmonic_interval(note3_temp, self.cfg.freqharm2)
+            note3_final = max(0, min(127, note3_final))
+            freq3_val = midi_to_frequency(note3_final)
+            duty_cycle3 = duty_percent_to_cycle(self.cfg.duty3)
+        else:
+            freq3_val = 440  # Freqüència dummy
+            duty_cycle3 = 0  # APAGAR PWM3
+        
+        # Aplicar freqüències i duty cycles
         self.hw.pwm1.frequency = base_freq
         self.hw.pwm2.frequency = freq2_val
         self.hw.pwm3.frequency = freq3_val

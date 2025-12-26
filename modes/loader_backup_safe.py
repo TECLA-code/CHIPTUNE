@@ -40,24 +40,12 @@ class ModeLoader:
         """Executa el mode musical seleccionat
         
         Arguments:
-            mode_num: Mode 1-14
+            mode_num: Mode 1-10
             x: CV1 (GP26) calibrat
             y: CV2 (GP27) calibrat
             sleep_time: Temps entre notes
             cx, cy: Coordenades Fractal
         """
-        
-        # Detectar si sortim del Mode 14 Ciclador per restaurar duty cycles
-        if not hasattr(self.cfg, 'last_mode'):
-            self.cfg.last_mode = mode_num
-        
-        if self.cfg.last_mode == 14 and mode_num != 14:
-            # Restaurar duty cycles per defecte en sortir del Mode Ciclador
-            self.cfg.duty1 = 50
-            self.cfg.duty2 = 50
-            self.cfg.duty3 = 50
-        
-        self.cfg.last_mode = mode_num
         
         if mode_num == 1:
             self._mode_mandelbrot(cx, cy, sleep_time)
@@ -79,14 +67,6 @@ class ModeLoader:
             self._mode_campanetes(x, y, sleep_time)
         elif mode_num == 10:
             self._mode_segones(x, y, sleep_time)
-        elif mode_num == 11:
-            self._mode_espiral(x, y, sleep_time)
-        elif mode_num == 12:
-            self._mode_contrapunt(x, y, sleep_time)
-        elif mode_num == 13:
-            self._mode_narval(x, y, sleep_time)
-        elif mode_num == 14:
-            self._mode_ciclador(x, y, sleep_time)
     
     # =========================================================================
     # MODE 1: FRACTAL MANDELBROT
@@ -533,19 +513,14 @@ class ModeLoader:
 
         current_note = max(0, min(127, current_note))
 
-        # Silencis rítmics: quan play=0, apagar tots els PWMs
-        if play == 0:
-            nota_pwm1 = nota_pwm2 = nota_pwm3 = 0
-        else:
-            nota_pwm1 = nota_pwm2 = nota_pwm3 = current_note
-
-        # Mode CAOS
+        # Mode CAOS: mantenim compatibilitat amb octaves aleatòries
         if self.cfg.caos == 1 and play == 1 and self.cfg.caos_note != 0:
             octava_new = random.randint(0, 8)
-            self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, octava_new, sleep_time * 500, 0, 0, 0)
+            self.midi.play_note_full(current_note, 1, octava_new, sleep_time * 500,
+                                      0, self.cfg.freqharm1, self.cfg.freqharm2)
 
-        # Tocar nota o silenci segons patró euclidià
-        self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, self.cfg.octava, sleep_time * 500, 0, 0, 0)
+        self.midi.play_note_full(current_note, play, self.cfg.octava, sleep_time * 500,
+                                  0, self.cfg.freqharm1, self.cfg.freqharm2)
 
         state['position'] = (step_index + 1) % 32
         self.cfg.position = state['position']
@@ -649,93 +624,48 @@ class ModeLoader:
         
         # Decidir si toca o silenci segons densitat
         probabilitat = random.randint(0, 100)
-        toca = probabilitat < densitat
-        
-        # Silencis reals: quan no toca, apagar tots els PWMs
-        if not toca:
-            nota_pwm1 = nota_pwm2 = nota_pwm3 = 0
-        else:
-            nota_pwm1 = nota_pwm2 = nota_pwm3 = nota
+        gate_on = 1 if probabilitat < densitat else 0
         
         # Mode CAOS: campanes en octaves aleatòries
-        if self.cfg.caos == 1 and self.cfg.caos_note != 0 and toca:
+        if self.cfg.caos == 1 and self.cfg.caos_note != 0 and gate_on:
             octava_new = random.randint(0, 8)
-            self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, octava_new, gate_ms, 0, 0, 0)
+            self.midi.play_note_full(nota, 1, octava_new, gate_ms,
+                                      0, self.cfg.freqharm1, self.cfg.freqharm2)
         
-        # Campana principal o silenci
-        self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, self.cfg.octava, gate_ms, 0, 0, 0)
+        # Campana principal (usa harmònics globals com tots els altres modes)
+        self.midi.play_note_full(nota, gate_on, self.cfg.octava, gate_ms,
+                                  0, self.cfg.freqharm1, self.cfg.freqharm2)
     
     # =========================================================================
     # MODE 10: SEGONES
     # =========================================================================
     def _mode_segones(self, x, y, sleep_time):
-        """Mode 10: Segones - Dues notes simultànies amb velocitat i separació progressiva
+        """Mode 10: Segones - Dues notes simultànies amb interval
         
         Controls:
-            x (CV1/GP26): Velocitat i direcció (7 rangs progressius):
-                - 0.00-0.15: -6 semitons/beat (molt ràpid ↓)
-                - 0.15-0.30: -4 semitons/beat (ràpid ↓)
-                - 0.30-0.45: -2 semitons/beat (lent ↓)
-                - 0.45-0.55: MANTÉ nota (zona morta)
-                - 0.55-0.70: +2 semitons/beat (lent ↑)
-                - 0.70-0.85: +4 semitons/beat (ràpid ↑)
-                - 0.85-1.00: +6 semitons/beat (molt ràpid ↑)
-                
-            y (CV2/GP27): Separació harmònica entre PWM1 i PWM2 (7 rangs):
-                - 0.00-0.15: 1-2 semitons (segones)
-                - 0.15-0.30: 3-4 semitons (terceres)
-                - 0.30-0.45: 5-6 semitons (quartes/trítono)
-                - 0.45-0.55: 7 semitons (quinta justa)
-                - 0.55-0.70: 8-9 semitons (sextes)
-                - 0.70-0.85: 10-11 semitons (sèptimes)
-                - 0.85-1.00: 12 semitons (octava)
+            x (CV1/GP26): Direcció (0-50% avall, 50-100% amunt)
+            y (CV2/GP27): Separació entre notes (1-12 semitons)
         
         Notes:
-            - PWM1 toca la nota base en evolució contínua
-            - PWM2 toca la nota base + separació harmònica
-            - Zona morta central permet mantenir notes estables
+            - PWM1 toca la nota base
+            - PWM2 toca la nota base + separació
         """
         
         # Inicialitzar estat si no existeix
         if not hasattr(self.cfg, 'segones_nota_anterior'):
             self.cfg.segones_nota_anterior = 12 * self.cfg.octava
         
-        # CV1: Velocitat i direcció amb 7 rangs progressius
+        # CV1: Direcció (0-0.5 = avall, 0.5-1 = amunt)
         direccio_pct = converters.normalize(x, self.cfg.cv1_min, self.cfg.cv1_max)
         
-        # CV2: Separació harmònica amb 7 rangs progressius
-        separacio_pct = converters.normalize(y, self.cfg.cv2_min, self.cfg.cv2_max)
+        # CV2: Separació entre notes (1-12 semitons, default 2 = segona)
+        separacio = int(converters.normalize(y, self.cfg.cv2_min, self.cfg.cv2_max) * 11.999) + 1
         
-        if separacio_pct < 0.15:
-            separacio = random.choice([1, 2])  # Segona menor/major
-        elif separacio_pct < 0.30:
-            separacio = random.choice([3, 4])  # Tercera menor/major
-        elif separacio_pct < 0.45:
-            separacio = random.choice([5, 6])  # Quarta/trítono
-        elif separacio_pct <= 0.55:
-            separacio = 7  # Quinta justa (zona central)
-        elif separacio_pct < 0.70:
-            separacio = random.choice([8, 9])  # Sexta menor/major
-        elif separacio_pct < 0.85:
-            separacio = random.choice([10, 11])  # Sèptima menor/major
+        # Calcular nova nota: moviment de 1 to (2 semitons)
+        if direccio_pct < 0.5:
+            nova_nota = self.cfg.segones_nota_anterior - 2  # Avall
         else:
-            separacio = 12  # Octava
-        
-        # Calcular nova nota segons velocitat amb 7 rangs
-        if direccio_pct < 0.15:
-            nova_nota = self.cfg.segones_nota_anterior - 6  # Molt ràpid avall
-        elif direccio_pct < 0.30:
-            nova_nota = self.cfg.segones_nota_anterior - 4  # Ràpid avall
-        elif direccio_pct < 0.45:
-            nova_nota = self.cfg.segones_nota_anterior - 2  # Lent avall
-        elif direccio_pct <= 0.55:
-            nova_nota = self.cfg.segones_nota_anterior  # Zona morta: mantenir
-        elif direccio_pct < 0.70:
-            nova_nota = self.cfg.segones_nota_anterior + 2  # Lent amunt
-        elif direccio_pct < 0.85:
-            nova_nota = self.cfg.segones_nota_anterior + 4  # Ràpid amunt
-        else:
-            nova_nota = self.cfg.segones_nota_anterior + 6  # Molt ràpid amunt
+            nova_nota = self.cfg.segones_nota_anterior + 2  # Amunt
         
         # Mantenir dins del rang MIDI
         nova_nota = max(0, min(127, nova_nota))
@@ -760,251 +690,5 @@ class ModeLoader:
         # Nota principal amb dues freqüències
         self.midi.play_note_full(nova_nota, 1, self.cfg.octava, sleep_time * 500,
                                   0, separacio, 0)  # freq1=separacio per PWM2
-    
-    # =========================================================================
-    # MODE 11: ESPIRAL
-    # =========================================================================
-    def _mode_espiral(self, x, y, sleep_time):
-        """Mode 11: Espiral - Recorregut circular amb transposició gradual"""
-        if not self.cfg.state_espiral['initialized']:
-            self.cfg.state_espiral.update({'transposicio': 0, 'cicle_counter': 0, 'initialized': True})
-        escala_major = [0, 2, 4, 5, 7, 9, 11, 12]
-        avanç = int(converters.normalize(x, self.cfg.cv1_min, self.cfg.cv1_max) * 6.999) + 1
-        cicle_transposicio = int(converters.normalize(y, self.cfg.cv2_min, self.cfg.cv2_max) * 31.999) + 1
-        grau_index = (self.cfg.iteration * avanç) % len(escala_major)
-        interval_escala = escala_major[grau_index]
-        self.cfg.state_espiral['cicle_counter'] += 1
-        if self.cfg.state_espiral['cicle_counter'] >= cicle_transposicio:
-            self.cfg.state_espiral['transposicio'] += 1
-            self.cfg.state_espiral['cicle_counter'] = 0
-            if self.cfg.state_espiral['transposicio'] >= 12:
-                self.cfg.state_espiral['transposicio'] = 0
-        nota_base = 12 * self.cfg.octava
-        nota = nota_base + interval_escala + self.cfg.state_espiral['transposicio']
-        nota = max(0, min(127, nota))
-        if self.cfg.caos == 1:
-            octava_new = random.randint(0, 8)
-            if self.cfg.caos_note != 0:
-                self.midi.play_note_full(nota, 1, octava_new, sleep_time * 500, 0, self.cfg.freqharm1, self.cfg.freqharm2)
-        self.midi.play_note_full(nota, 1, self.cfg.octava, sleep_time * 500, 0, self.cfg.freqharm1, self.cfg.freqharm2)
-    
-    # =========================================================================
-    # MODE 12: CONTRAPUNT
-    # =========================================================================
-    def _mode_contrapunt(self, x, y, sleep_time):
-        """Mode 12: Contrapunt - Veu principal + dues veus complementàries independents"""
-        if not self.cfg.state_contrapunt['initialized']:
-            self.cfg.state_contrapunt.update({'beat_counter': 0, 'degree': 0, 'initialized': True})
-        
-        escala_major = [0, 2, 4, 5, 7, 9, 11]
-        
-        # CV1: Densitat PWM2 (tercera major - consonant) - INVERTIT
-        # CV1 baix = poc freqüent (cada 8), CV1 alt = molt freqüent (cada 1)
-        densitat_pwm2 = 8 - int(converters.normalize(x, self.cfg.cv1_min, self.cfg.cv1_max) * 7.999)  # 8-1
-        
-        # CV2: Densitat PWM3 (trítono - dissonant) - INVERTIT
-        # CV2 baix = poc freqüent (cada 8), CV2 alt = molt freqüent (cada 1)
-        densitat_pwm3 = 8 - int(converters.normalize(y, self.cfg.cv2_min, self.cfg.cv2_max) * 7.999)  # 8-1
-        
-        # Veu principal
-        grau_principal = self.cfg.state_contrapunt['degree'] % len(escala_major)
-        nota_base = 12 * self.cfg.octava
-        nota_principal = nota_base + escala_major[grau_principal]
-        nota_principal = max(0, min(127, nota_principal))
-        self.cfg.state_contrapunt['degree'] = (grau_principal + 1) % len(escala_major)
-        self.cfg.state_contrapunt['beat_counter'] += 1
-        
-        # Determinar si toquen les veus complementàries
-        toca_pwm2 = (self.cfg.state_contrapunt['beat_counter'] % densitat_pwm2) == 0
-        toca_pwm3 = (self.cfg.state_contrapunt['beat_counter'] % densitat_pwm3) == 0
-        
-        # PWM1: Sempre toca la veu principal
-        nota_pwm1 = nota_principal
-        
-        # PWM2: Tercera major (consonant) o silenci
-        if toca_pwm2:
-            nota_pwm2 = nota_principal + 4  # Tercera major
-            nota_pwm2 = max(0, min(127, nota_pwm2))
-        else:
-            nota_pwm2 = 0  # SILENCI
-        
-        # PWM3: Trítono (dissonant) o silenci
-        if toca_pwm3:
-            nota_pwm3 = nota_principal + 6  # Trítono (interval més dissonant)
-            nota_pwm3 = max(0, min(127, nota_pwm3))
-        else:
-            nota_pwm3 = 0  # SILENCI
-        
-        # Mode CAOS
-        if self.cfg.caos == 1 and self.cfg.caos_note != 0:
-            octava_new = random.randint(0, 8)
-            self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, octava_new, sleep_time * 500, 0, 0, 0)
-        
-        # Tocar les 3 veus (amb silencis on correspongui)
-        self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, self.cfg.octava, sleep_time * 500, 0, 0, 0)
-    
-    # =========================================================================
-    # MODE 13: NARVAL
-    # =========================================================================
-    def _mode_narval(self, x, y, sleep_time):
-        """Mode 13: Narval - Tres narvals que es comuniquen musicalment amb interaccions orgàniques"""
-        if not self.cfg.state_narval['initialized']:
-            self.cfg.state_narval.update({'grau_escala': 0, 'nota_base': 60, 'initialized': True})
-        escala_pentatonica = [0, 2, 4, 7, 9]
-        prob_crida = converters.normalize(x, self.cfg.cv1_min, self.cfg.cv1_max)
-        tipus_resposta = converters.normalize(y, self.cfg.cv2_min, self.cfg.cv2_max)
-        
-        # CV2 ara controla probabilitat de resposta (més alt = més respostes)
-        prob_resposta = tipus_resposta * 0.8  # Màxim 80% probabilitat de respondre
-        
-        # Intervals harmònics segons tipus de resposta
-        if tipus_resposta < 0.33:
-            intervals = [3, 6, 10]  # Trist
-        elif tipus_resposta < 0.66:
-            intervals = [5, 7, 12]  # Neutre
-        else:
-            intervals = [4, 9, 12]  # Feliç
-        
-        # 3 daus independents per cada narval
-        dau_narval1, dau_narval2, dau_narval3 = random.random(), random.random(), random.random()
-        narval1_crida = dau_narval1 < prob_crida
-        narval2_crida = dau_narval2 < prob_crida
-        narval3_crida = dau_narval3 < prob_crida
-        narvals_parlant = sum([narval1_crida, narval2_crida, narval3_crida])
-        
-        # Nota base de l'escala
-        grau = self.cfg.state_narval['grau_escala'] % len(escala_pentatonica)
-        nota_base = 12 * self.cfg.octava + escala_pentatonica[grau]
-        self.cfg.state_narval['grau_escala'] = (grau + 1) % len(escala_pentatonica)
-        
-        # Inicialitzar notes (per defecte silenci)
-        nota_pwm1 = nota_pwm2 = nota_pwm3 = 0
-        
-        if narvals_parlant == 0:
-            # Cap narval crida: silenci total
-            pass
-            
-        elif narvals_parlant == 1:
-            # UN SOL NARVAL CRIDA: Els altres poden respondre o callar
-            if narval1_crida:
-                # Narval 1 crida (sempre toca)
-                nota_pwm1 = nota_base
-                # Narval 2 i 3 responen segons probabilitat
-                if random.random() < prob_resposta:
-                    nota_pwm2 = nota_base + intervals[0]
-                if random.random() < prob_resposta:
-                    nota_pwm3 = nota_base + intervals[1]
-                    
-            elif narval2_crida:
-                # Narval 2 crida (sempre toca)
-                nota_pwm2 = nota_base
-                # Narval 1 i 3 responen segons probabilitat
-                if random.random() < prob_resposta:
-                    nota_pwm1 = nota_base + intervals[0]
-                if random.random() < prob_resposta:
-                    nota_pwm3 = nota_base + intervals[1]
-                    
-            else:  # narval3_crida
-                # Narval 3 crida (sempre toca)
-                nota_pwm3 = nota_base
-                # Narval 1 i 2 responen segons probabilitat
-                if random.random() < prob_resposta:
-                    nota_pwm1 = nota_base + intervals[0]
-                if random.random() < prob_resposta:
-                    nota_pwm2 = nota_base + intervals[1]
-                    
-        elif narvals_parlant == 2:
-            # DOS NARVALS PARLEN: El tercer pot ballar o callar
-            if not narval1_crida:
-                # Narvals 2 i 3 parlen
-                nota_pwm2 = nota_base
-                nota_pwm3 = nota_base + intervals[0]
-                # Narval 1 balla només si prob_resposta és alta
-                if random.random() < prob_resposta * 0.5:  # 50% menys probable
-                    nota_pwm1 = nota_base + 12
-                    
-            elif not narval2_crida:
-                # Narvals 1 i 3 parlen
-                nota_pwm1 = nota_base
-                nota_pwm3 = nota_base + intervals[0]
-                # Narval 2 balla segons probabilitat
-                if random.random() < prob_resposta * 0.5:
-                    nota_pwm2 = nota_base + 12
-                    
-            else:  # not narval3_crida
-                # Narvals 1 i 2 parlen
-                nota_pwm1 = nota_base
-                nota_pwm2 = nota_base + intervals[0]
-                # Narval 3 balla segons probabilitat
-                if random.random() < prob_resposta * 0.5:
-                    nota_pwm3 = nota_base + 12
-                    
-        else:  # narvals_parlant == 3
-            # TOTS TRES PARLEN: harmonia completa (sempre toquen tots)
-            nota_pwm1 = nota_base
-            nota_pwm2 = nota_base + intervals[0]
-            nota_pwm3 = nota_base + intervals[2]
-        
-        # Assegurar rang MIDI vàlid
-        nota_pwm1 = max(0, min(127, nota_pwm1))
-        nota_pwm2 = max(0, min(127, nota_pwm2))
-        nota_pwm3 = max(0, min(127, nota_pwm3))
-        
-        # Mode CAOS
-        if self.cfg.caos == 1 and self.cfg.caos_note != 0 and (nota_pwm1 > 0 or nota_pwm2 > 0 or nota_pwm3 > 0):
-            self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, random.randint(0, 8), sleep_time * 500, 0, 0, 0)
-        
-        # Tocar notes (nota = 0 significa silenci per aquell PWM)
-        if nota_pwm1 > 0 or nota_pwm2 > 0 or nota_pwm3 > 0:
-            self.midi.play_note_full_multi(nota_pwm1, nota_pwm2, nota_pwm3, 1, self.cfg.octava, sleep_time * 500, 0, 0, 0)
-
-    # =========================================================================
-    # MODE 14: CICLADOR
-    # =========================================================================
-    def _mode_ciclador(self, x, y, sleep_time):
-        """Mode 14: Ciclador - Control independent dels duty cycles de cada PWM
-        
-        Controls:
-            x (CV1/GP26): Duty cycle PWM1 (0-99%)
-            y (CV2/GP27): Duty cycle PWM2 (0-99%)
-            Slider (GP28): Duty cycle PWM3 (0-99%)
-        
-        Notes:
-            - Cada PWM té control independent del duty cycle
-            - Nota fixa a C4 (Do central, MIDI 60)
-            - Octava controlada amb creueta (botons)
-            - Permet exploració tímbrica amb 3 PWMs independents
-        """
-        
-        # x, y estan clampats al rang calibrat
-        # z (slider) no es calibra, sempre 0-3.3V
-        
-        # CV1: Duty cycle per PWM1 (0-99%) - normalitzar al rang calibrat
-        duty1_pct = converters.normalize(x, self.cfg.cv1_min, self.cfg.cv1_max) * 99
-        
-        # CV2: Duty cycle per PWM2 (0-99%) - normalitzar al rang calibrat
-        duty2_pct = converters.normalize(y, self.cfg.cv2_min, self.cfg.cv2_max) * 99
-        
-        # Slider: Duty cycle per PWM3 (0-99%) - NO calibrat, sempre 0-3.3V
-        slider_voltage = self.cfg.z
-        duty3_pct = (slider_voltage / 3.3) * 99
-        
-        # Aplicar els duty cycles independents (clamping a 1-99)
-        self.cfg.duty1 = max(1, min(99, int(duty1_pct)))
-        self.cfg.duty2 = max(1, min(99, int(duty2_pct)))
-        self.cfg.duty3 = max(1, min(99, int(duty3_pct)))
-        
-        # Nota fixa C4 (MIDI 60) amb octava controlable per creueta
-        nota_base = 60 + (12 * (self.cfg.octava - 5))  # C4 = octava 5
-        nota_base = max(0, min(127, nota_base))
-        
-        # Mode CAOS
-        if self.cfg.caos == 1 and self.cfg.caos_note != 0:
-            octava_caos = random.randint(0, 8)
-            self.midi.play_note_full(nota_base, 1, octava_caos, sleep_time * 500, 0, self.cfg.freqharm1, self.cfg.freqharm2)
-        
-        # Tocar nota amb els duty cycles independents
-        self.midi.play_note_full(nota_base, 1, self.cfg.octava, sleep_time * 500, 0, self.cfg.freqharm1, self.cfg.freqharm2)
-
 
 

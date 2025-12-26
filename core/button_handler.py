@@ -7,7 +7,6 @@ import random
 # Constants de temps per polsacions llargues - Temps Humà Natural
 LONG_PRESS_SUMMARY = 1.5  # 1.5s - Mostrar resum complet (Extra1) - més deliberat
 LONG_PRESS_PAUSE = 1.5    # 1.5s - Pausa total/stop (Extra2) - evita stops accidentals
-BROWSE_HOLD_THRESHOLD = 0.6  # Temps per activar/desactivar navegació segura al tracker
 
 CONFIG_OPTION_COUNT = 7  # Mode, 3 duty i 3 harmònics
 
@@ -36,28 +35,27 @@ def process_buttons(hw, cfg, rtos, current_time):
             _debounce[10] = current_time
         return
     
-    # Botó extra 1: Tracker=canviar pàgina, Normal=cicla config
+    # Botó extra 1: Ciclar configuració
     if hw.boton_extra_1.value and not cfg.calibration_mode:
         if cfg.button_hold_times[4] == 0:
             cfg.button_hold_times[4] = current_time
         
         hold_duration = current_time - cfg.button_hold_times[4]
         
-        # Polsació llarga: mostrar resum complet (només mode normal)
-        if hold_duration > LONG_PRESS_SUMMARY and not cfg.button_long_press_triggered[4] and not cfg.sequencer_mode_active:
+        # Polsació llarga: mostrar resum complet
+        if hold_duration > LONG_PRESS_SUMMARY and not cfg.button_long_press_triggered[4]:
             cfg.show_full_summary = True
             cfg.button_long_press_triggered[4] = True
     elif cfg.button_hold_times[4] > 0:
-        # Deixa anar: Tracker o Normal
+        # Deixa anar: Mode normal
         if not cfg.button_long_press_triggered[4]:
-            if cfg.sequencer_mode_active:
-                # MODE TRACKER: Ciclar pàgines (0→1→2→0)
-                cfg.sequencer_page = (cfg.sequencer_page + 1) % 3
+            # Ciclar configout (si estem en mode 0, mantenir configout=0)
+            if cfg.loop_mode == 0:
+                cfg.configout = 0  # Mode 0: només canviar modes
             else:
-                # MODE NORMAL: Ciclar configout
                 cfg.configout = (cfg.configout + 1) % CONFIG_OPTION_COUNT
-                cfg.show_config_mode = True
-                cfg.config_display_timer = 0
+            cfg.show_config_mode = True
+            cfg.config_display_timer = 0
         else:
             cfg.show_full_summary = False
         cfg.button_hold_times[4] = 0
@@ -71,91 +69,75 @@ def process_buttons(hw, cfg, rtos, current_time):
         
         hold_duration = current_time - cfg.button_hold_times[5]
         
-        # Polsació llarga: pausa total (ÚNICA SORTIDA del sequencer)
+        # Polsació llarga: pausa total
         if hold_duration > LONG_PRESS_PAUSE and not cfg.button_long_press_triggered[5]:
             cfg.loop_mode = 0
+            cfg.configout = 0  # Forçar mode de selecció de modes
             rtos.stop_all_notes()
             cfg.iteration = 0
             cfg.caos = 0
-            cfg.sequencer_mode_active = False  # Desactivar bloqueig tracker
-            cfg.sequencer_page = 0  # Reset a pàgina 0
-            cfg.sequencer_play_position = 0  # Reset reproducció
-            # edit_position es manté per continuar editant després
             hw.all_leds_off()
             cfg.button_long_press_triggered[5] = True
     elif cfg.button_hold_times[5] > 0:
         # Deixa anar: si no era llarga
         if not cfg.button_long_press_triggered[5]:
-            if cfg.sequencer_mode_active:
-                # Tracker: utilitzar com octavador circular propi
-                cfg.sequencer_octave = (cfg.sequencer_octave + 1) % 9
-                cfg.octava = cfg.sequencer_octave  # Sincronitzar indicador global
-                cfg.sequencer_pending_note = (cfg.sequencer_octave + 1) * 12
-                cfg.caos = 0
+            # Rotar enrere configout (SEMPRE mantenir configout=0 si estem en mode 0)
+            if cfg.loop_mode == 0:
+                cfg.configout = 0  # Mode 0: només canviar modes
             else:
-                cfg.configout = (cfg.configout - 1) % CONFIG_OPTION_COUNT  # Rota circular enrere
-                cfg.show_config_mode = True
-                cfg.config_display_timer = 0
+                cfg.configout = (cfg.configout - 1) % CONFIG_OPTION_COUNT
+            cfg.show_config_mode = True
+            cfg.config_display_timer = 0
+        else:
+            # Si acabem de fer pausa llarga, assegurar configout=0
+            cfg.configout = 0
         cfg.button_hold_times[5] = 0
         cfg.button_long_press_triggered[5] = False
         cfg.last_interaction_time = current_time
     
-# Botó cruceta 1: ↑ Pujar octava (normal) / Anar a nota anterior (tracker)
+# Botó cruceta 1: ↑ Pujar octava
     if boton_presionado(hw.boton_crueta_1, 0):
-        cfg.last_interaction_time = current_time
-        if cfg.sequencer_mode_active and cfg.sequencer_page == 0:
-            # MODE TRACKER - Pàgina 0: Anar a nota anterior
-            cfg.sequencer_edit_position = (cfg.sequencer_edit_position - 1) % cfg.sequencer_length
-            cfg.sequencer_note_edit_mode = False  # Sortir del mode edició al canviar de nota
-        elif not cfg.sequencer_mode_active:
-            # MODE NORMAL: Pujar octava
-            if cfg.octava < 8:
-                cfg.octava += 1
-                cfg.caos = 0
+        # NO actualitzar last_interaction_time (no canvia pantalla)
+        # Pujar octava
+        if cfg.octava < 8:
+            cfg.octava += 1
+            cfg.caos = 0
+        else:
+            # Al activar/desactivar el modo caos, guardar/restaurar la octava
+            if cfg.caos == 0:
+                # Guardar la octava actual y activar modo caos
+                cfg.octava_anterior = cfg.octava
+                cfg.octava = random.randint(0, 8)  # Octava aleatoria inicial
+                cfg.caos = 1
             else:
-                # Al activar/desactivar el modo caos, guardar/restaurar la octava
-                if cfg.caos == 0:
-                    # Guardar la octava actual y activar modo caos
-                    cfg.octava_anterior = cfg.octava
-                    cfg.octava = random.randint(0, 8)  # Octava aleatoria inicial
-                    cfg.caos = 1
-                else:
-                    # Restaurar la octava anterior y desactivar modo caos
-                    cfg.octava = cfg.octava_anterior
-                    cfg.caos = 0
+                # Restaurar la octava anterior y desactivar modo caos
+                cfg.octava = cfg.octava_anterior
+                cfg.caos = 0
     
-    # Botó cruceta 2: ↓ Anar a nota següent (tracker) / Baixar octava (normal)
+    # Botó cruceta 2: ↓ Baixar octava
     if boton_presionado(hw.boton_crueta_2, 1):
-        cfg.last_interaction_time = current_time
-        if cfg.sequencer_mode_active and cfg.sequencer_page == 0:
-            # MODE TRACKER - Pàgina 0: Anar a nota següent
-            cfg.sequencer_edit_position = (cfg.sequencer_edit_position + 1) % cfg.sequencer_length
-            cfg.sequencer_note_edit_mode = False  # Sortir del mode edició al canviar de nota
-        elif not cfg.sequencer_mode_active:
-            # MODE NORMAL: Baixar octava
-            if cfg.octava > 0:
-                cfg.octava -= 1
-                cfg.caos = 0
+        # NO actualitzar last_interaction_time (no canvia pantalla)
+        # Baixar octava
+        if cfg.octava > 0:
+            cfg.octava -= 1
+            cfg.caos = 0
+        else:
+            # Al activar/desactivar el modo caos, guardar/restaurar la octava
+            if cfg.caos == 0:
+                # Guardar la octava actual y activar modo caos
+                cfg.octava_anterior = cfg.octava
+                cfg.octava = random.randint(0, 8)  # Octava aleatoria inicial
+                cfg.caos = 1
             else:
-                # Al activar/desactivar el modo caos, guardar/restaurar la octava
-                if cfg.caos == 0:
-                    # Guardar la octava actual y activar modo caos
-                    cfg.octava_anterior = cfg.octava
-                    cfg.octava = random.randint(0, 8)  # Octava aleatoria inicial
-                    cfg.caos = 1
-                else:
-                    # Restaurar la octava anterior y desactivar modo caos
-                    cfg.octava = cfg.octava_anterior
-                    cfg.caos = 0
+                # Restaurar la octava anterior y desactivar modo caos
+                cfg.octava = cfg.octava_anterior
+                cfg.caos = 0
     
-    # Botó cruceta 3: Decrementar valor amb acceleració (si no calibració)
+    # Botó cruceta 3: Decrementar valor amb acceleració
     if hw.boton_crueta_3.value and not cfg.calibration_mode:
         if cfg.button_debounce_time[2] == 0:
             cfg.button_debounce_time[2] = current_time
             cfg.config_hold_time = 0.0
-            if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.configout == 0:
-                cfg.sequencer_gate_pending = True
-                cfg.sequencer_browse_hold_triggered = False
         
         # Calcular acceleració exponencial - Progressió més natural
         cfg.config_hold_time = current_time - cfg.button_debounce_time[2]
@@ -170,55 +152,40 @@ def process_buttons(hw, cfg, rtos, current_time):
         
         cfg.last_interaction_time = current_time
 
-        if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.configout == 0:
-            if cfg.config_hold_time > BROWSE_HOLD_THRESHOLD and not cfg.sequencer_browse_hold_triggered:
-                cfg.sequencer_browse_mode = not cfg.sequencer_browse_mode
-                cfg.sequencer_browse_hold_triggered = True
-                cfg.sequencer_gate_pending = False
-                cfg.sequencer_note_edit_mode = False
-        elif cfg.configout == 0:
-            if cfg.sequencer_mode_active and cfg.sequencer_page == 1:
-                # Pàgina 1: Disminuir longitud
-                cfg.sequencer_length = max(8, cfg.sequencer_length - 1)
-                if cfg.sequencer_edit_position >= cfg.sequencer_length:
-                    cfg.sequencer_edit_position = cfg.sequencer_length - 1
-            elif not cfg.sequencer_mode_active:
-                # MODE NORMAL: Canvi de loop mode
-                cfg.loop_mode = (cfg.loop_mode - 1) if cfg.loop_mode > 1 else 9
+        if cfg.configout == 0:
+            # MODE CANVI: Sempre canviar només 1 mode (NO acceleració)
+            # Usar debounce per evitar múltiples canvis
+            if current_time - cfg.button_debounce_time[2] > 0.15:  # 150ms mínim
+                cfg.loop_mode = (cfg.loop_mode - 1) if cfg.loop_mode > 1 else 14
+                cfg.configout = 0  # Mantenir en mode selecció de modes
                 rtos.stop_all_notes()
+                cfg.button_debounce_time[2] = current_time  # Reset debounce
         elif cfg.configout == 1:
             cfg.duty1 = max(1, cfg.duty1 - cfg.config_acceleration)
+            rtos.stop_all_notes()  # Apagar gate al canviar duty
         elif cfg.configout == 2:
             cfg.duty2 = max(1, cfg.duty2 - cfg.config_acceleration)
+            rtos.stop_all_notes()  # Apagar gate al canviar duty
         elif cfg.configout == 3:
             cfg.duty3 = max(1, cfg.duty3 - cfg.config_acceleration)
+            rtos.stop_all_notes()  # Apagar gate al canviar duty
         elif cfg.configout == 4:
-            cfg.freqharm_base = (cfg.freqharm_base - 1) % 9
+            cfg.freqharm_base = (cfg.freqharm_base - 1) % 13
+            rtos.stop_all_notes()  # Apagar gate al canviar harmònic
         elif cfg.configout == 5:
-            cfg.freqharm1 = (cfg.freqharm1 - 1) % 9
+            cfg.freqharm1 = (cfg.freqharm1 - 1) % 13
+            rtos.stop_all_notes()  # Apagar gate al canviar harmònic
         elif cfg.configout == 6:
-            cfg.freqharm2 = (cfg.freqharm2 - 1) % 9
+            cfg.freqharm2 = (cfg.freqharm2 - 1) % 13
+            rtos.stop_all_notes()  # Apagar gate al canviar harmònic
         
         cfg.show_config_mode = True
         cfg.config_display_timer = 0
     else:
-        if cfg.button_debounce_time[2] > 0:
-            if (cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.configout == 0
-                    and cfg.sequencer_gate_pending and not cfg.sequencer_browse_hold_triggered
-                    and not cfg.sequencer_browse_mode):
-                current_gate = cfg.sequencer_gate[cfg.sequencer_edit_position]
-                if current_gate == cfg.SEQUENCER_GATE_OFF:
-                    new_gate = cfg.SEQUENCER_GATE_ON
-                else:
-                    new_gate = cfg.SEQUENCER_GATE_OFF
-                cfg.sequencer_gate[cfg.sequencer_edit_position] = new_gate
-                cfg.sequencer_note_edit_mode = False
-            cfg.sequencer_gate_pending = False
-            cfg.sequencer_browse_hold_triggered = False
         cfg.button_debounce_time[2] = 0
         cfg.config_acceleration = 1
     
-    # Botó cruceta 4: En modo Tracker, cambiar potenciómetro de nota. En modo normal, incrementar valor.
+    # Botó cruceta 4: Incrementar valor amb acceleració
     if hw.boton_crueta_4.value and not cfg.calibration_mode:
         if cfg.button_debounce_time[3] == 0:
             cfg.button_debounce_time[3] = current_time
@@ -237,49 +204,35 @@ def process_buttons(hw, cfg, rtos, current_time):
         
         cfg.last_interaction_time = current_time
         
-        # Si es una pulsación corta en modo Tracker, cambiar el potenciómetro activo
-        if (cfg.sequencer_mode_active and cfg.sequencer_page == 0 and cfg.config_hold_time < 0.3
-                and not cfg.sequencer_note_edit_mode and not cfg.sequencer_browse_mode):
-            # Cambiar entre potenciómetro 1 (CV1) y 2 (CV2) para control de notas
-            cfg.sequencer_note_pot = 2 if cfg.sequencer_note_pot == 1 else 1
-            # Mostrar indicación visual del cambio
-            cfg.show_config_mode = True
-            cfg.config_display_timer = 0
-        elif cfg.configout == 0:
-            if cfg.sequencer_mode_active and cfg.sequencer_page == 0 and not cfg.sequencer_browse_mode:
-                # MODE TRACKER - Pàgina 0: Confirmar canvi de nota o entrar en mode edició
-                if cfg.sequencer_note_edit_mode:
-                    # Confirmar canvi de nota
-                    cfg.sequencer_pattern[cfg.sequencer_edit_position] = cfg.sequencer_pending_note
-                    cfg.sequencer_note_edit_mode = False
-                else:
-                    # Entrar en mode edició
-                    cfg.sequencer_note_edit_mode = True
-                    cfg.sequencer_pending_note = cfg.sequencer_pattern[cfg.sequencer_edit_position]
-            elif cfg.sequencer_mode_active and cfg.sequencer_page == 1:
-                # Pàgina 1: Augmentar longitud
-                cfg.sequencer_length = min(32, cfg.sequencer_length + 1)
-            elif not cfg.sequencer_mode_active:
-                # MODE NORMAL: Canvi de loop mode
-                cfg.loop_mode = (cfg.loop_mode + 1) if cfg.loop_mode < 9 else 1
+        if cfg.configout == 0:
+            # MODE CANVI: Sempre canviar només 1 mode (NO acceleració)
+            # Usar debounce per evitar múltiples canvis
+            if current_time - cfg.button_debounce_time[3] > 0.15:  # 150ms mínim
+                cfg.loop_mode = (cfg.loop_mode + 1) if cfg.loop_mode < 14 else 1
+                cfg.configout = 0  # Mantenir en mode selecció de modes
                 rtos.stop_all_notes()
+                cfg.button_debounce_time[3] = current_time  # Reset debounce
         elif cfg.configout == 1:
             cfg.duty1 = min(99, cfg.duty1 + cfg.config_acceleration)
+            rtos.stop_all_notes()  # Apagar gate al canviar duty
         elif cfg.configout == 2:
             cfg.duty2 = min(99, cfg.duty2 + cfg.config_acceleration)
+            rtos.stop_all_notes()  # Apagar gate al canviar duty
         elif cfg.configout == 3:
             cfg.duty3 = min(99, cfg.duty3 + cfg.config_acceleration)
+            rtos.stop_all_notes()  # Apagar gate al canviar duty
         elif cfg.configout == 4:
-            cfg.freqharm_base = (cfg.freqharm_base + 1) % 9
+            cfg.freqharm_base = (cfg.freqharm_base + 1) % 13
+            rtos.stop_all_notes()  # Apagar gate al canviar harmònic
         elif cfg.configout == 5:
-            cfg.freqharm1 = (cfg.freqharm1 + 1) % 9
+            cfg.freqharm1 = (cfg.freqharm1 + 1) % 13
+            rtos.stop_all_notes()  # Apagar gate al canviar harmònic
         elif cfg.configout == 6:
-            cfg.freqharm2 = (cfg.freqharm2 + 1) % 9
+            cfg.freqharm2 = (cfg.freqharm2 + 1) % 13
+            rtos.stop_all_notes()  # Apagar gate al canviar harmònic
         
         cfg.show_config_mode = True
         cfg.config_display_timer = 0
-        
-        # Debounce gestionat pel sistema temporal (button_debounce_time)
     else:
         cfg.button_debounce_time[3] = 0
         cfg.config_acceleration = 1

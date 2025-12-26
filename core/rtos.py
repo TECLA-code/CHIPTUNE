@@ -11,14 +11,17 @@ class RTOSManager:
         self.hw = hardware
         self.cfg = config
     
-    def update(self):
+    def update(self, current_time):
         """
         Sistema RTOS amb PRIORIDADES - Gestiona timings crítics en temps real
         
         PRIORIDAD 1 (CRÍTICA): Gate/Trigger temporal
         PRIORIDAD 2 (ALTA): NoteOff programats
+        
+        Args:
+            current_time: Temps actual (time.monotonic()) passat des del bucle principal
         """
-        current_time = time.monotonic()
+        # No cridar time.monotonic() aquí (optimització: evita crida redundant)
         
         # ===== PRIORIDAD 1: Gestió del Gate temporal (CRÍTICO) =====
         if self.cfg.gate_active and current_time >= self.cfg.gate_off_time:

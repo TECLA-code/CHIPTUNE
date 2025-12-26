@@ -22,15 +22,19 @@ def midi_to_note_name(midi_note):
 def apply_harmonic_interval(note, harmonic_type):
     """Aplica intervalo armónico a nota MIDI"""
     harmonic_intervals = {
-        0: 0,   # Unísono
-        1: 12,  # Octava
-        2: 7,   # Quinta
-        3: 5,   # Cuarta
-        4: 4,   # Tercera Mayor
-        5: 3,   # Tercera menor
-        6: 9,   # Sexta Mayor
-        7: 10,  # Séptima
-        8: 6    # Tritono
+        0: 0,    # Unísono - 0 semitons
+        1: 1,    # Segona menor - 1 semitó
+        2: 2,    # Segona major - 2 semitons
+        3: 3,    # Tercera menor - 3 semitons
+        4: 4,    # Tercera major - 4 semitons
+        5: 5,    # Quarta justa - 5 semitons
+        6: 6,    # Trítono - 6 semitons
+        7: 7,    # Quinta justa - 7 semitons
+        8: 8,    # Sisena menor - 8 semitons
+        9: 9,    # Sisena major - 9 semitons
+        10: 10,  # Sèptima menor - 10 semitons
+        11: 11,  # Sèptima major - 11 semitons
+        12: 12   # Octava - 12 semitons
     }
     
     harmonic = harmonic_intervals.get(harmonic_type, 0)
@@ -121,38 +125,64 @@ def get_voltage_percentage(voltage, cv_min, cv_max):
     percentage = int(((clamped - cv_min) / (cv_max - cv_min)) * 100)
     return max(0, min(100, percentage))  # Clamp adicional a 0-100%
 
-def steps(voltage, pot_min=0.0, pot_max=3.3):
-    """Escala voltaje a rango MIDI 0-127 (amb clipping)"""
-    step = (pot_max - pot_min) / 127.0
-    value = round((voltage - pot_min) / step)
-    return max(0, min(127, value))  # Clipping MIDI segur
+def steps(voltage, cv_min=0.0, cv_max=3.3):
+    """Escala voltatge calibrat a rang MIDI 0-127
+    
+    Args:
+        voltage: Voltatge **ja calibrat** (dins del rang cv_min-cv_max)
+        cv_min: Mínim del rang CV (default 0.0V)
+        cv_max: Màxim del rang CV (default 3.3V, pot ser 0.5V, 1.0V, etc.)
+    
+    Returns:
+        Valor 0-127 escalar segons el rang CV
+    """
+    if cv_max <= cv_min:
+        return 64  # Valor mig si rang invàlid
+    step = (cv_max - cv_min) / 127.0
+    value = round((voltage - cv_min) / step)
+    return max(0, min(127, value))
 
-def steps_melo(voltage, pot_min=0.0, pot_max=3.3):
-    """Escala voltaje para parámetros melódicos (0-10)"""
-    step_melo = (pot_max - pot_min) / 10.0
-    value = round((voltage - pot_min) / step_melo)
+
+def steps_melo(voltage, cv_min=0.0, cv_max=3.3):
+    """Escala voltatge calibrat per paràmetres melòdics (0-10)"""
+    if cv_max <= cv_min:
+        return 5
+    step_melo = (cv_max - cv_min) / 10.0
+    value = round((voltage - cv_min) / step_melo)
     return max(0, min(10, value))
 
-def steps_escala(voltage, pot_min=0.0, pot_max=3.3):
-    """Escala voltaje para parámetros escala (0-6)"""
-    step_escala = (pot_max - pot_min) / 6.0
-    value = round((voltage - pot_min) / step_escala)
+
+def steps_escala(voltage, cv_min=0.0, cv_max=3.3):
+    """Escala voltatge calibrat per paràmetres d'escala (0-6)"""
+    if cv_max <= cv_min:
+        return 3
+    step_escala = (cv_max - cv_min) / 6.0
+    value = round((voltage - cv_min) / step_escala)
     return max(0, min(6, value))
 
-def steps_control(voltage, pot_min=0.0, pot_max=3.3):
-    """Escala voltaje para control general (0-50)"""
-    step_control = (pot_max - pot_min) / 50.0
-    value = round((voltage - pot_min) / step_control)
+
+def steps_control(voltage, cv_min=0.0, cv_max=3.3):
+    """Escala voltatge calibrat per control general (0-50)"""
+    if cv_max <= cv_min:
+        return 25
+    step_control = (cv_max - cv_min) / 50.0
+    value = round((voltage - cv_min) / step_control)
     return max(0, min(50, value))
 
-def steps_nota(voltage, pot_min=0.0, pot_max=3.3):
-    """Escala voltaje para selección de notas (0-23)"""
-    step_nota = (pot_max - pot_min) / 23.0
-    value = round((voltage - pot_min) / step_nota)
+
+def steps_nota(voltage, cv_min=0.0, cv_max=3.3):
+    """Escala voltatge calibrat per selecció de notes (0-23)"""
+    if cv_max <= cv_min:
+        return 12
+    step_nota = (cv_max - cv_min) / 23.0
+    value = round((voltage - cv_min) / step_nota)
     return max(0, min(23, value))
 
-def steps_ritme(voltage, pot_min=0.0, pot_max=3.3):
-    """Escala voltaje para parámetros rítmicos (0-36)"""
-    step_ritme = (pot_max - pot_min) / 36.0
-    value = round((voltage - pot_min) / step_ritme)
+
+def steps_ritme(voltage, cv_min=0.0, cv_max=3.3):
+    """Escala voltatge calibrat per paràmetres rítmics (0-36)"""
+    if cv_max <= cv_min:
+        return 18
+    step_ritme = (cv_max - cv_min) / 36.0
+    value = round((voltage - cv_min) / step_ritme)
     return max(0, min(36, value))
